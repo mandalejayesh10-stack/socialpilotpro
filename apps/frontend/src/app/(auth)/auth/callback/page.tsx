@@ -1,16 +1,12 @@
 'use client';
 
-import { useEffect } from 'react';
+import { Suspense, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAppStore } from '@/lib/store';
 import { authApi } from '@/lib/api';
 import { Zap } from 'lucide-react';
 
-/**
- * Handles OAuth callbacks (Google login).
- * The backend sets the secure httpOnly session cookie and redirects here.
- */
-export default function AuthCallbackPage() {
+function AuthCallback() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { setUser, setOrganizations } = useAppStore();
@@ -46,13 +42,27 @@ export default function AuthCallbackPage() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-surface flex items-center justify-center">
-      <div className="flex flex-col items-center gap-3">
-        <div className="w-10 h-10 rounded-xl bg-brand-500 flex items-center justify-center animate-pulse">
-          <Zap size={20} className="text-white" />
-        </div>
-        <p className="text-sm text-text-muted">Signing you in...</p>
+    <div className="flex flex-col items-center gap-3">
+      <div className="w-10 h-10 rounded-xl bg-brand-500 flex items-center justify-center animate-pulse">
+        <Zap size={20} className="text-white" />
       </div>
+      <p className="text-sm text-text-muted">Signing you in...</p>
+    </div>
+  );
+}
+
+export default function AuthCallbackPage() {
+  return (
+    <div className="min-h-screen bg-surface flex items-center justify-center">
+      <Suspense fallback={
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-brand-500 flex items-center justify-center animate-pulse">
+            <Zap size={20} className="text-white" />
+          </div>
+        </div>
+      }>
+        <AuthCallback />
+      </Suspense>
     </div>
   );
 }
