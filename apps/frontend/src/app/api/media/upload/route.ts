@@ -2,18 +2,15 @@
  * Next.js API Route: POST /api/media/upload
  *
  * Proxies multipart/form-data uploads directly to the backend,
+/**
+ * Next.js API Route: POST /api/media/upload
+ *
+ * Proxies multipart/form-data uploads directly to the backend,
  * bypassing the Next.js rewrite which has a 4MB body-size limit.
  * This route streams the raw request body to avoid buffering issues.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-
-// Disable Next.js body parsing — we forward the raw stream
-export const config = {
-  api: {
-    bodyParser: false,
-  },
-};
 
 if (process.env.NODE_ENV === 'production' && !process.env.BACKEND_PROXY_URL) {
   throw new Error('BACKEND_PROXY_URL is required in production for media uploads.');
