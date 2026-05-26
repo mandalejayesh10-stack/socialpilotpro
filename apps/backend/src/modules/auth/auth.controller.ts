@@ -49,14 +49,14 @@ export class AuthController {
   @Get('google/status')
   @ApiOperation({ summary: 'Check if Google OAuth is configured' })
   googleStatus() {
-    const backendUrl = process.env.BACKEND_INTERNAL_URL || 'http://localhost:3000';
+    const redirectBase = process.env.FRONTEND_URL || 'http://localhost:4200';
     return {
       configured: this.googleOAuth.isConfigured(),
       account: 'mandalejayesh10@gmail.com',
-      redirectUri: `${backendUrl}/api/auth/google/callback`,
+      redirectUri: `${redirectBase}/api/auth/google/callback`,
       addToGoogleConsole: [
-        `${backendUrl}/api/auth/google/callback`,
-        `http://localhost:3000/api/auth/google/callback`,
+        `${redirectBase}/api/auth/google/callback`,
+        `http://localhost:4200/api/auth/google/callback`,
       ],
     };
   }
@@ -88,7 +88,7 @@ export class AuthController {
             <div class="step">1. Go to <a href="https://console.cloud.google.com" target="_blank">console.cloud.google.com</a></div>
             <div class="step">2. Create a project → APIs & Services → Credentials</div>
             <div class="step">3. Create OAuth 2.0 Client ID (Web application type)</div>
-            <div class="step">4. Add Authorized redirect URI:<br><code>${process.env.BACKEND_INTERNAL_URL || 'http://localhost:3000'}/api/auth/google/callback</code></div>
+            <div class="step">4. Add Authorized redirect URI:<br><code>${process.env.FRONTEND_URL || 'http://localhost:4200'}/api/auth/google/callback</code></div>
             <div class="step">5. Add to your <code>.env</code> file:<br>
               <code>GOOGLE_CLIENT_ID=your_client_id</code><br>
               <code>GOOGLE_CLIENT_SECRET=your_client_secret</code>
