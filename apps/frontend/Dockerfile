@@ -6,6 +6,7 @@ WORKDIR /app
 FROM base AS deps
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY apps/frontend/package.json ./apps/frontend/
+COPY libraries/nestjs-libraries/src/database/prisma/schema.prisma ./libraries/nestjs-libraries/src/database/prisma/
 RUN pnpm install --frozen-lockfile --filter @socialpilot/frontend...
 
 # ── Build ─────────────────────────────────────────────────────
