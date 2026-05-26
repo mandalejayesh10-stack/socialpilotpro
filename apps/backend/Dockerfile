@@ -6,7 +6,7 @@ WORKDIR /app
 FROM base AS deps
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY apps/backend/package.json ./apps/backend/
-COPY libraries/nestjs-libraries/package.json ./libraries/nestjs-libraries/ 2>/dev/null || true
+COPY libraries/nestjs-libraries/package.json ./libraries/nestjs-libraries/
 RUN pnpm install --frozen-lockfile --filter @socialpilot/backend...
 
 # ── Build ─────────────────────────────────────────────────────

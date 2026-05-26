@@ -5,7 +5,7 @@ WORKDIR /app
 FROM base AS deps
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY apps/orchestrator/package.json ./apps/orchestrator/
-COPY libraries/nestjs-libraries/package.json ./libraries/nestjs-libraries/ 2>/dev/null || true
+COPY libraries/nestjs-libraries/package.json ./libraries/nestjs-libraries/
 RUN pnpm install --frozen-lockfile --filter @socialpilot/orchestrator...
 
 FROM deps AS builder
