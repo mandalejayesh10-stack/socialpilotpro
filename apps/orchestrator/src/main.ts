@@ -12,7 +12,7 @@ async function bootstrap() {
   });
 
   const port = process.env.ORCHESTRATOR_PORT || 3001;
-  await app.listen(port);
+  await app.listen(port, '0.0.0.0');
   logger.log(`Orchestrator running on port ${port}`);
   logger.log('Background jobs active: token refresh, analytics pipeline, post scheduler');
 }
