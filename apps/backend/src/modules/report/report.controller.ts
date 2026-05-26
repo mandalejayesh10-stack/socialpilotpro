@@ -45,6 +45,14 @@ export class ReportController {
     return this.reportService.getReport(org.id, id);
   }
 
+  @Get(':id/download')
+  async downloadReport(@CurrentOrg() org: any, @Param('id') id: string, @Res() res: Response) {
+    const file = await this.reportService.getReportFile(org.id, id);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
+    return res.sendFile(file.fullPath);
+  }
+
   @Post(':id/retry')
   async retryReport(@CurrentOrg() org: any, @Param('id') id: string) {
     const report = await this.reportService.getReport(org.id, id);

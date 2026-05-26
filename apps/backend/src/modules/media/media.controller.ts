@@ -12,6 +12,8 @@ import { MediaService } from './media.service';
 import { FfmpegService } from './ffmpeg.service';
 import { MediaValidatorService } from './media-validator.service';
 import { OrgMemberGuard } from '../../common/guards/org-member.guard';
+import { PermissionsGuard } from '../../common/guards/permissions.guard';
+import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { CurrentOrg } from '../../common/decorators/current-user.decorator';
 import { ProcessVideoOptions } from './ffmpeg.service';
 
@@ -41,7 +43,7 @@ function mimeTypeFilter(
 @ApiTags('Media')
 @ApiBearerAuth()
 @Controller('media')
-@UseGuards(OrgMemberGuard)
+@UseGuards(OrgMemberGuard, PermissionsGuard)
 export class MediaController {
   constructor(
     private mediaService: MediaService,
@@ -52,10 +54,11 @@ export class MediaController {
   @Get('status')
   @ApiOperation({ summary: 'Check media processing capabilities' })
   async getStatus() {
+    const mediaStatus = await this.mediaService.getStatus();
     return {
-      ffmpeg: this.ffmpeg.isAvailable(),
-      storage: process.env.STORAGE_PROVIDER || 'local',
-      uploadDir: process.env.UPLOAD_DIRECTORY || './uploads',
+      ffmpeg: this.ffmpeg.getStatus(),
+      storage: mediaStatus.storage,
+      uploadDir: mediaStatus.uploadDir,
       maxFileSize: '500MB',
     };
   }
@@ -73,6 +76,7 @@ export class MediaController {
   }
 
   @Post('upload')
+  @RequirePermissions('uploads:write')
   @ApiOperation({ summary: 'Upload image, video, or audio' })
   @ApiConsumes('multipart/form-data')
   @UseInterceptors(
@@ -96,6 +100,7 @@ export class MediaController {
   }
 
   @Post(':id/process')
+  @RequirePermissions('uploads:write')
   @ApiOperation({ summary: 'Process video (trim, merge audio, adjust volume)' })
   async processVideo(
     @CurrentOrg() org: any,
@@ -116,6 +121,7 @@ export class MediaController {
   }
 
   @Delete(':id')
+  @RequirePermissions('delete:write')
   @ApiOperation({ summary: 'Delete media' })
   async delete(@CurrentOrg() org: any, @Param('id') id: string) {
     return this.mediaService.deleteMedia(org.id, id);

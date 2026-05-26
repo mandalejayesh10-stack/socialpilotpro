@@ -119,6 +119,7 @@ export class BillingService {
     if (!organizationId) return;
 
     const subscription = await this.stripe.getSubscription(session.subscription);
+    const billingPeriod = this.getSubscriptionPeriod(subscription);
     const tier = this.getTierFromPriceId(subscription.items.data[0].price.id);
 
     await this.prisma.subscription.upsert({
@@ -131,8 +132,8 @@ export class BillingService {
         externalId: subscription.id,
         customerId: session.customer,
         period: subscription.items.data[0].price.recurring?.interval === 'year' ? 'YEARLY' : 'MONTHLY',
-        currentPeriodStart: new Date(subscription.current_period_start * 1000),
-        currentPeriodEnd: new Date(subscription.current_period_end * 1000),
+        currentPeriodStart: billingPeriod.start,
+        currentPeriodEnd: billingPeriod.end,
         amount: subscription.items.data[0].price.unit_amount || 0,
         currency: subscription.currency,
       },
@@ -141,8 +142,8 @@ export class BillingService {
         status: 'ACTIVE',
         externalId: subscription.id,
         customerId: session.customer,
-        currentPeriodStart: new Date(subscription.current_period_start * 1000),
-        currentPeriodEnd: new Date(subscription.current_period_end * 1000),
+        currentPeriodStart: billingPeriod.start,
+        currentPeriodEnd: billingPeriod.end,
       },
     });
 
@@ -158,14 +159,15 @@ export class BillingService {
 
     const tier = this.getTierFromPriceId(subscription.items.data[0].price.id);
     const status = this.mapStripeStatus(subscription.status);
+    const billingPeriod = this.getSubscriptionPeriod(subscription);
 
     await this.prisma.subscription.update({
       where: { id: existing.id },
       data: {
         tier,
         status,
-        currentPeriodStart: new Date(subscription.current_period_start * 1000),
-        currentPeriodEnd: new Date(subscription.current_period_end * 1000),
+        currentPeriodStart: billingPeriod.start,
+        currentPeriodEnd: billingPeriod.end,
         cancelAt: subscription.cancel_at ? new Date(subscription.cancel_at * 1000) : null,
       },
     });
@@ -178,6 +180,16 @@ export class BillingService {
       where: { externalId: subscription.id },
       data: { status: 'CANCELLED', cancelledAt: new Date() },
     });
+  }
+
+  private getSubscriptionPeriod(subscription: any) {
+    const item = subscription.items?.data?.[0];
+    const start = item?.current_period_start || subscription.current_period_start || subscription.created || Math.floor(Date.now() / 1000);
+    const end = item?.current_period_end || subscription.current_period_end || subscription.cancel_at || start;
+    return {
+      start: new Date(start * 1000),
+      end: new Date(end * 1000),
+    };
   }
 
   private async handlePaymentSucceeded(invoice: any) {

@@ -1,13 +1,14 @@
 ﻿"use client";
 
 import { useState, useEffect } from "react";
-import { useOrgId } from "@/lib/hooks";
+import { useDemographics, useOrgId } from "@/lib/hooks";
 import { analyticsApi } from "@/lib/api";
 import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { PeriodSelector, Period } from "@/components/ui/period-selector";
 import { ChartCard } from "@/components/ui/chart-card";
 import { EmptyState } from "@/components/ui/empty-state";
+import { DemographicsPanel } from "@/components/analytics/demographics-panel";
 import clsx from "clsx";
 import dayjs from "dayjs";
 import {
@@ -63,6 +64,7 @@ export default function YouTubeAnalyticsPage() {
   const [videoTotal, setVideoTotal] = useState(0);
   const [loadingVideos, setLoadingVideos] = useState(false);
   const [activeTab, setActiveTab] = useState<"growth" | "balance" | "videos" | "list">("growth");
+  const { data: demographics, isLoading: loadingDemographics } = useDemographics("YOUTUBE", period);
 
   // ── Load data ─────────────────────────────────────────────
   const loadData = async () => {
@@ -151,6 +153,8 @@ export default function YouTubeAnalyticsPage() {
   const periodComments = stats.reduce((s, c) => s + (c.totalComments || 0), 0);
   const periodShares = stats.reduce((s, c) => s + (c.totalShares || 0), 0);
   const watchTime = stats.reduce((s, c) => s + (c.totalWatchTime || 0), 0);
+  const avgRetention = stats.length ? stats.reduce((s, c) => s + (c.avgRetention || 0), 0) / stats.length : 0;
+  const avgCtr = stats.length ? stats.reduce((s, c) => s + (c.avgCtr || 0), 0) / stats.length : 0;
 
   // Build chart data from summary
   const sp = (v: any) => Array.isArray(v) ? v : (typeof v === "string" ? (() => { try { return JSON.parse(v || "[]"); } catch { return []; } })() : []);
@@ -161,9 +165,9 @@ export default function YouTubeAnalyticsPage() {
   const balanceData = stats.flatMap((c) =>
     (c.rows || []).map((row: any) => ({
       date: row[0],
-      gained: row[6] || 0,
-      lost: row[7] || 0,
-      net: (row[6] || 0) - (row[7] || 0),
+      gained: row[8] || 0,
+      lost: row[9] || 0,
+      net: (row[8] || 0) - (row[9] || 0),
     }))
   ).sort((a, b) => a.date.localeCompare(b.date));
 
@@ -171,9 +175,9 @@ export default function YouTubeAnalyticsPage() {
     (c.rows || []).map((row: any) => ({
       date: row[0],
       views: row[1] || 0,
-      likes: row[3] || 0,
-      comments: row[4] || 0,
-      shares: row[5] || 0,
+      likes: row[5] || 0,
+      comments: row[6] || 0,
+      shares: row[7] || 0,
     }))
   ).sort((a, b) => a.date.localeCompare(b.date));
 
@@ -266,11 +270,13 @@ export default function YouTubeAnalyticsPage() {
       {activeTab === "growth" && (
         <div className="space-y-5">
           {/* Metric cards */}
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
             <StatCard label="Subscribers" value={totalSubscribers} color="bg-purple-500/15 text-purple-300" icon={<Users size={16} />} />
             <StatCard label="Video Views" value={periodViews} color="bg-green-500/15 text-green-300" icon={<Eye size={16} />} />
             <StatCard label="Watch Time (min)" value={watchTime} color="bg-pink-500/15 text-pink-300" icon={<Clock size={16} />} />
             <StatCard label="Videos" value={totalVideos} color="bg-amber-500/15 text-amber-300" icon={<Youtube size={16} />} />
+            <StatCard label="Avg Retention" value={`${avgRetention.toFixed(1)}%`} color="bg-blue-500/15 text-blue-300" />
+            <StatCard label="Avg CTR" value={`${avgCtr.toFixed(1)}%`} color="bg-cyan-500/15 text-cyan-300" />
           </div>
 
           {/* Growth chart */}
@@ -309,6 +315,8 @@ export default function YouTubeAnalyticsPage() {
               />
             </div>
           )}
+
+          <DemographicsPanel data={demographics} loading={loadingDemographics} />
         </div>
       )}
 
@@ -414,6 +422,8 @@ export default function YouTubeAnalyticsPage() {
                   <th className="text-right px-4 py-3 text-xs font-medium text-text-muted uppercase tracking-wider">Views</th>
                   <th className="text-right px-4 py-3 text-xs font-medium text-text-muted uppercase tracking-wider">Likes</th>
                   <th className="text-right px-4 py-3 text-xs font-medium text-text-muted uppercase tracking-wider">Comments</th>
+                  <th className="text-right px-4 py-3 text-xs font-medium text-text-muted uppercase tracking-wider">Watch</th>
+                  <th className="text-right px-4 py-3 text-xs font-medium text-text-muted uppercase tracking-wider">Retention</th>
                   <th className="text-right px-4 py-3 text-xs font-medium text-text-muted uppercase tracking-wider">Duration</th>
                   <th className="text-right px-4 py-3 text-xs font-medium text-text-muted uppercase tracking-wider">Published</th>
                   <th className="px-4 py-3" />
@@ -450,6 +460,8 @@ export default function YouTubeAnalyticsPage() {
                       <td className="px-4 py-3 text-right text-sm text-text-secondary">{formatNum(video.views)}</td>
                       <td className="px-4 py-3 text-right text-sm text-text-secondary">{formatNum(video.likes)}</td>
                       <td className="px-4 py-3 text-right text-sm text-text-secondary">{formatNum(video.comments)}</td>
+                      <td className="px-4 py-3 text-right text-sm text-text-secondary">{formatNum(video.watchTimeMinutes || 0)}</td>
+                      <td className="px-4 py-3 text-right text-sm text-text-secondary">{(video.retentionPercent || 0).toFixed(1)}%</td>
                       <td className="px-4 py-3 text-right text-sm text-text-muted">{formatDuration(video.duration)}</td>
                       <td className="px-4 py-3 text-right text-sm text-text-muted">{dayjs(video.publishedAt).format("MMM D, YYYY")}</td>
                       <td className="px-4 py-3 text-right">

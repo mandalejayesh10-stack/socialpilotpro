@@ -15,7 +15,13 @@ export const config = {
   },
 };
 
-const BACKEND_URL = process.env.BACKEND_PROXY_URL || 'http://localhost:3000';
+if (process.env.NODE_ENV === 'production' && !process.env.BACKEND_PROXY_URL) {
+  throw new Error('BACKEND_PROXY_URL is required in production for media uploads.');
+}
+
+const BACKEND_URL = process.env.NODE_ENV === 'production'
+  ? process.env.BACKEND_PROXY_URL!
+  : (process.env.BACKEND_PROXY_URL || 'http://localhost:3000');
 
 export async function POST(req: NextRequest) {
   try {

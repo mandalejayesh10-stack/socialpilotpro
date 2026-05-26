@@ -691,7 +691,11 @@ function PostDetailPanel({
           {/* Error detail */}
           {post.state === 'ERROR' && post.error && (
             <div className="bg-red-500/8 border border-red-500/20 rounded-xl p-3">
-              <p className="text-xs font-semibold text-red-400 mb-1">Publish Error</p>
+              <p className="text-xs font-semibold text-red-400 mb-1">
+                {post.error.includes('cannot access your media file publicly')
+                  ? 'Instagram cannot access your media file publicly'
+                  : 'Publish Error'}
+              </p>
               <p className="text-xs text-red-300/80 font-mono leading-relaxed break-all">
                 {post.error.replace('__CLAIMED__', '').trim() || 'Unknown error'}
               </p>

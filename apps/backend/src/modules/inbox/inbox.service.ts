@@ -331,9 +331,10 @@ export class InboxService {
           });
 
           // Upsert top-level comment as message
-          await this.prisma.inboxMessage.upsert({
-            where: { platformMessageId: thread.snippet?.topLevelComment?.id || conversationId },
-            create: {
+          await this.upsertInboxMessage(
+            conversation.id,
+            thread.snippet?.topLevelComment?.id || conversationId,
+            {
               conversationId: conversation.id,
               senderType: 'USER',
               senderName: topComment.authorDisplayName || 'Unknown',
@@ -344,12 +345,12 @@ export class InboxService {
               likeCount: topComment.likeCount || 0,
               createdAt: new Date(topComment.publishedAt || Date.now()),
             },
-            update: {
+            {
               message: topComment.textDisplay || '',
               likeCount: topComment.likeCount || 0,
               isEdited: topComment.publishedAt !== topComment.updatedAt,
             },
-          });
+          );
 
           // Upsert replies
           for (const reply of thread.replies?.comments || []) {
@@ -358,9 +359,10 @@ export class InboxService {
 
             const isOwner = replySnippet.authorChannelId?.value === integration.internalId;
 
-            await this.prisma.inboxMessage.upsert({
-              where: { platformMessageId: reply.id || `reply_${reply.id}` },
-              create: {
+            await this.upsertInboxMessage(
+              conversation.id,
+              reply.id || `reply_${reply.id}`,
+              {
                 conversationId: conversation.id,
                 senderType: isOwner ? 'OWNER' : 'USER',
                 senderName: replySnippet.authorDisplayName || 'Unknown',
@@ -371,11 +373,11 @@ export class InboxService {
                 likeCount: replySnippet.likeCount || 0,
                 createdAt: new Date(replySnippet.publishedAt || Date.now()),
               },
-              update: {
+              {
                 message: replySnippet.textDisplay || '',
                 likeCount: replySnippet.likeCount || 0,
               },
-            });
+            );
           }
         }
       } catch (err) {
@@ -474,9 +476,10 @@ export class InboxService {
         });
 
         // Upsert comment as message
-        await this.prisma.inboxMessage.upsert({
-          where: { platformMessageId: comment.id },
-          create: {
+        await this.upsertInboxMessage(
+          conversation.id,
+          comment.id,
+          {
             conversationId: conversation.id,
             senderType: 'USER',
             senderName: comment.from?.name || 'Unknown',
@@ -486,20 +489,21 @@ export class InboxService {
             likeCount: comment.like_count || 0,
             createdAt: new Date(comment.created_time),
           },
-          update: {
+          {
             message: comment.message || '',
             likeCount: comment.like_count || 0,
           },
-        });
+        );
 
         // Upsert replies
         for (const reply of comment.replies?.data || []) {
           const isOwner = reply.from?.id === integration.internalId ||
             reply.from?.id === integration.pageId;
 
-          await this.prisma.inboxMessage.upsert({
-            where: { platformMessageId: reply.id },
-            create: {
+          await this.upsertInboxMessage(
+            conversation.id,
+            reply.id,
+            {
               conversationId: conversation.id,
               senderType: isOwner ? 'OWNER' : 'USER',
               senderName: reply.from?.name || 'Unknown',
@@ -508,8 +512,8 @@ export class InboxService {
               platformMessageId: reply.id,
               createdAt: new Date(reply.created_time),
             },
-            update: { message: reply.message || '' },
-          });
+            { message: reply.message || '' },
+          );
         }
       }
     } catch (err) {
@@ -518,6 +522,25 @@ export class InboxService {
   }
 
   // ── YouTube: reply to comment ─────────────────────────────
+  private async upsertInboxMessage(
+    conversationId: string,
+    platformMessageId: string,
+    create: any,
+    update: any,
+  ) {
+    const existing = await this.prisma.inboxMessage.findFirst({
+      where: { conversationId, platformMessageId },
+      select: { id: true },
+    });
+    if (existing) {
+      return this.prisma.inboxMessage.update({
+        where: { id: existing.id },
+        data: update,
+      });
+    }
+    return this.prisma.inboxMessage.create({ data: create });
+  }
+
   private async replyYouTube(
     platformConversationId: string,
     message: string,

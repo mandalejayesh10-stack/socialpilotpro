@@ -20,6 +20,7 @@ import { WebhookModule } from './modules/webhook/webhook.module';
 import { SecurityMiddleware } from './common/middleware/security.middleware';
 import { CustomThrottlerGuard } from './common/guards/throttler.guard';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
+import { PermissionsGuard } from './common/guards/permissions.guard';
 import { HealthModule } from './modules/health/health.module';
 import { InboxModule } from './modules/inbox/inbox.module';
 
@@ -64,6 +65,7 @@ import { InboxModule } from './modules/inbox/inbox.module';
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
     },
+    PermissionsGuard,
   ],
 })
 export class AppModule implements NestModule {

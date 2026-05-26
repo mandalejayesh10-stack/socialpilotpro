@@ -49,6 +49,7 @@ export class PipelineService {
         this.logger.error(
           `Basic stats failed for integration ${integration.id}: ${err.message}`,
         );
+        await this.storeSyncError(integration, 'basic_stats', err);
         await this.markRefreshNeeded(integration.id, err.message);
       }
     }
@@ -109,6 +110,7 @@ export class PipelineService {
         this.logger.error(
           `Post metrics failed for integration ${integration.id}: ${err.message}`,
         );
+        await this.storeSyncError(integration, 'post_metrics', err);
       }
     }
   }
@@ -165,6 +167,7 @@ export class PipelineService {
         this.logger.error(
           `Full analytics failed for integration ${integration.id}: ${err.message}`,
         );
+        await this.storeSyncError(integration, 'full_analytics', err);
       }
     }
   }
@@ -202,6 +205,20 @@ export class PipelineService {
         where: { id: integrationId },
         data: { refreshNeeded: true },
       });
+    }
+  }
+
+  private async storeSyncError(integration: any, jobType: string, err: any) {
+    const now = new Date();
+    try {
+      await this.storeRaw(integration, 'sync_error', now, now, {
+        jobType,
+        message: err?.message || String(err),
+        status: err?.response?.status || err?.code || null,
+        at: now.toISOString(),
+      });
+    } catch (storeErr: any) {
+      this.logger.warn(`Failed to store sync error for ${integration.id}: ${storeErr.message}`);
     }
   }
 }

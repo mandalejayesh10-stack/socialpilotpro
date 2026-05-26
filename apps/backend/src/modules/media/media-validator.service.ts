@@ -248,6 +248,10 @@ export class MediaValidatorService {
   // ── ffprobe wrapper ───────────────────────────────────────
   private async getVideoMeta(filePath: string): Promise<VideoMeta> {
     const ffmpeg = require('fluent-ffmpeg');
+    const ffmpegPath = (process.env.FFMPEG_PATH || '').trim().replace(/^['"]|['"]$/g, '');
+    const ffprobePath = (process.env.FFPROBE_PATH || '').trim().replace(/^['"]|['"]$/g, '');
+    if (ffmpegPath) ffmpeg.setFfmpegPath(ffmpegPath);
+    if (ffprobePath) ffmpeg.setFfprobePath(ffprobePath);
     return new Promise((resolve, reject) => {
       ffmpeg.ffprobe(filePath, (err: any, metadata: any) => {
         if (err) return reject(err);

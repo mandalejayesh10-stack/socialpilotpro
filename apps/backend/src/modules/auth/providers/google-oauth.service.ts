@@ -58,7 +58,7 @@ export class GoogleOAuthService implements OnModuleInit {
   }
 
   // ── Generate OAuth URL ────────────────────────────────────
-  getAuthUrl(): string {
+  getAuthUrl(state?: string): string {
     if (!this.configured) {
       throw new Error(
         'Google OAuth is not configured. Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to .env and restart.',
@@ -73,6 +73,7 @@ export class GoogleOAuthService implements OnModuleInit {
         'https://www.googleapis.com/auth/userinfo.profile',
       ],
       prompt: 'consent',
+      state,
     });
   }
 

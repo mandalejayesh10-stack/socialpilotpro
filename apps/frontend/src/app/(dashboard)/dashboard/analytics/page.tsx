@@ -1,19 +1,21 @@
 'use client';
 
 import { useState } from 'react';
-import { useOverview, useOrgId } from '@/lib/hooks';
+import { useAnalyticsSyncStatus, useOverview, useOrgId } from '@/lib/hooks';
 import { MetricCard } from '@/components/ui/metric-card';
 import { ChartCard } from '@/components/ui/chart-card';
 import { PeriodSelector, Period } from '@/components/ui/period-selector';
 import { SkeletonCard, SkeletonChart } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
 import { PageHeader } from '@/components/ui/page-header';
+import { Badge } from '@/components/ui/badge';
 import { Users, Heart, Eye, TrendingUp, BarChart3, Link2 } from 'lucide-react';
 import Link from 'next/link';
 
 export default function AnalyticsPage() {
   const [period, setPeriod] = useState<Period>('30d');
   const { data, isLoading } = useOverview(period);
+  const { data: syncStatus } = useAnalyticsSyncStatus();
 
   const ig = data?.instagram;
   const fb = data?.facebook;
@@ -55,6 +57,27 @@ export default function AnalyticsPage() {
         />
         <PeriodSelector value={period} onChange={setPeriod} />
       </div>
+
+      {syncStatus && (
+        <div className="bg-surface-card border border-surface-border rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium text-text-primary">Real API sync</p>
+            <p className="text-xs text-text-muted">
+              Basic stats every 15 minutes, post metrics hourly, summaries daily. Last checked {new Date(syncStatus.generatedAt).toLocaleString()}.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {(syncStatus.platforms || []).map((item: any) => (
+              <Badge
+                key={item.integrationId}
+                variant={item.status === 'healthy' ? 'success' : item.status === 'failed' || item.status === 'auth_required' ? 'error' : 'warning'}
+              >
+                {item.platform.toLowerCase()}: {String(item.status).replace('_', ' ')}
+              </Badge>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* No data state */}
       {!isLoading && !hasData && (

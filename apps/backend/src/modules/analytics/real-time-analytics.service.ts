@@ -12,8 +12,33 @@ import axios from "axios";
 @Injectable()
 export class RealTimeAnalyticsService {
   private readonly logger = new Logger(RealTimeAnalyticsService.name);
+  private readonly cache = new Map<string, { expiresAt: number; data: any }>();
 
   constructor(private prisma: PrismaService) {}
+
+  private async getCached<T>(key: string, ttlMs: number, fetcher: () => Promise<T>): Promise<T> {
+    const cached = this.cache.get(key);
+    if (cached && cached.expiresAt > Date.now()) return cached.data as T;
+    const data = await this.withRetry(fetcher);
+    this.cache.set(key, { expiresAt: Date.now() + ttlMs, data });
+    return data;
+  }
+
+  private async withRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
+    let lastError: any;
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      try {
+        return await fn();
+      } catch (err: any) {
+        lastError = err;
+        const status = err?.response?.status || err?.code;
+        const transient = status === 429 || status >= 500 || ['ECONNRESET', 'ETIMEDOUT'].includes(err?.code);
+        if (!transient || attempt === attempts) break;
+        await new Promise((resolve) => setTimeout(resolve, attempt * 750));
+      }
+    }
+    throw lastError;
+  }
 
   // ── Force sync all integrations for an org ────────────────
   async forceSyncOrg(organizationId: string) {
@@ -591,15 +616,16 @@ export class RealTimeAnalyticsService {
         auth.setCredentials({ access_token: token, refresh_token: refreshToken || undefined });
 
         const youtube = google.youtube({ version: "v3", auth });
+        const youtubeAnalytics = google.youtubeAnalytics({ version: "v2", auth });
 
-        const searchRes = await youtube.search.list({
+        const searchRes = await this.getCached(`yt:rt:search:${integration.id}:${search || ''}`, 5 * 60 * 1000, () => youtube.search.list({
           part: ["snippet"],
           forMine: true,
           type: ["video"],
           maxResults: 50,
           order: "date",
           ...(search && { q: search }),
-        });
+        }));
 
         const videoIds = (searchRes.data.items || [])
           .map((v: any) => v.id?.videoId)
@@ -607,20 +633,64 @@ export class RealTimeAnalyticsService {
 
         if (videoIds.length === 0) continue;
 
-        const detailsRes = await youtube.videos.list({
+        const detailsRes = await this.getCached(`yt:rt:details:${videoIds.join(',')}`, 5 * 60 * 1000, () => youtube.videos.list({
           part: ["statistics", "snippet", "contentDetails"],
           id: videoIds,
-        });
+        }));
+
+        const analyticsByVideo: Record<string, any> = {};
+        const endDate = new Date().toISOString().split("T")[0];
+        const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+        try {
+          const videoAnalytics = await this.getCached(`yt:rt:video-analytics:${videoIds.join(',')}:${startDate}:${endDate}`, 10 * 60 * 1000, () => youtubeAnalytics.reports.query({
+            ids: "channel==MINE",
+            startDate,
+            endDate,
+            metrics: "views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,likes,comments,shares,subscribersGained",
+            dimensions: "video",
+            filters: `video==${videoIds.join(",")}`,
+          }));
+
+          for (const row of videoAnalytics.data.rows || []) {
+            const [videoId, views, watchTimeMinutes, averageViewDuration, retentionPercent, likes, comments, shares, subscribersGained] = row;
+            analyticsByVideo[videoId] = {
+              views: Number(views || 0),
+              watchTimeMinutes: Number(watchTimeMinutes || 0),
+              averageViewDuration: Number(averageViewDuration || 0),
+              retentionPercent: Number(retentionPercent || 0),
+              likes: Number(likes || 0),
+              comments: Number(comments || 0),
+              shares: Number(shares || 0),
+              subscribersGained: Number(subscribersGained || 0),
+            };
+          }
+        } catch (err: any) {
+          this.logger.warn(`YouTube video analytics for ${integration.id}: ${err.message}`);
+        }
 
         for (const video of detailsRes.data.items || []) {
+          const analytics = analyticsByVideo[video.id!] || {};
+          const publicViews = parseInt(video.statistics?.viewCount || "0");
+          const views = analytics.views || publicViews;
+          const likes = analytics.likes || parseInt(video.statistics?.likeCount || "0");
+          const comments = analytics.comments || parseInt(video.statistics?.commentCount || "0");
+          const engagementRate = views > 0
+            ? ((likes + comments + (analytics.shares || 0)) / views) * 100
+            : 0;
           allVideos.push({
             id: video.id,
             title: video.snippet?.title,
             thumbnail: video.snippet?.thumbnails?.medium?.url,
             publishedAt: video.snippet?.publishedAt,
-            views: parseInt(video.statistics?.viewCount || "0"),
-            likes: parseInt(video.statistics?.likeCount || "0"),
-            comments: parseInt(video.statistics?.commentCount || "0"),
+            views,
+            likes,
+            comments,
+            shares: analytics.shares || 0,
+            watchTimeMinutes: analytics.watchTimeMinutes || 0,
+            averageViewDuration: analytics.averageViewDuration || 0,
+            retentionPercent: analytics.retentionPercent || 0,
+            subscribersGained: analytics.subscribersGained || 0,
+            engagementRate: parseFloat(engagementRate.toFixed(2)),
             duration: video.contentDetails?.duration,
             channelName: integration.name,
             integrationId: integration.id,
@@ -674,26 +744,44 @@ export class RealTimeAnalyticsService {
 
         let analyticsData: any = {};
         try {
-          const analyticsRes = await youtubeAnalytics.reports.query({
+          const analyticsRes = await this.getCached(`yt:rt:stats:${integration.id}:${startDate}:${endDate}`, 10 * 60 * 1000, () => youtubeAnalytics.reports.query({
             ids: `channel==${integration.internalId}`,
             startDate,
             endDate,
-            metrics: "views,estimatedMinutesWatched,likes,comments,shares,subscribersGained,subscribersLost",
+            metrics: "views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,likes,comments,shares,subscribersGained,subscribersLost",
             dimensions: "day",
             sort: "day",
-          });
+          }));
 
           const rows = analyticsRes.data.rows || [];
           analyticsData = {
             rows,
             totalViews: rows.reduce((s: number, r: any) => s + (r[1] || 0), 0),
             totalWatchTime: rows.reduce((s: number, r: any) => s + (r[2] || 0), 0),
-            totalLikes: rows.reduce((s: number, r: any) => s + (r[3] || 0), 0),
-            totalComments: rows.reduce((s: number, r: any) => s + (r[4] || 0), 0),
-            totalShares: rows.reduce((s: number, r: any) => s + (r[5] || 0), 0),
-            subsGained: rows.reduce((s: number, r: any) => s + (r[6] || 0), 0),
-            subsLost: rows.reduce((s: number, r: any) => s + (r[7] || 0), 0),
+            avgViewDuration: rows.length ? rows.reduce((s: number, r: any) => s + (r[3] || 0), 0) / rows.length : 0,
+            avgRetention: rows.length ? rows.reduce((s: number, r: any) => s + (r[4] || 0), 0) / rows.length : 0,
+            totalLikes: rows.reduce((s: number, r: any) => s + (r[5] || 0), 0),
+            totalComments: rows.reduce((s: number, r: any) => s + (r[6] || 0), 0),
+            totalShares: rows.reduce((s: number, r: any) => s + (r[7] || 0), 0),
+            subsGained: rows.reduce((s: number, r: any) => s + (r[8] || 0), 0),
+            subsLost: rows.reduce((s: number, r: any) => s + (r[9] || 0), 0),
           };
+          try {
+            const ctrRes = await this.getCached(`yt:rt:ctr:${integration.id}:${startDate}:${endDate}`, 10 * 60 * 1000, () => youtubeAnalytics.reports.query({
+              ids: `channel==${integration.internalId}`,
+              startDate,
+              endDate,
+              metrics: "impressions,impressionClickThroughRate",
+              dimensions: "day",
+              sort: "day",
+            }));
+            const ctrRows = ctrRes.data.rows || [];
+            analyticsData.ctrRows = ctrRows;
+            analyticsData.totalImpressions = ctrRows.reduce((s: number, r: any) => s + (r[1] || 0), 0);
+            analyticsData.avgCtr = ctrRows.length ? ctrRows.reduce((s: number, r: any) => s + (r[2] || 0), 0) / ctrRows.length : 0;
+          } catch (err: any) {
+            this.logger.warn(`YouTube CTR unavailable: ${err.message}`);
+          }
         } catch (err) {
           this.logger.warn(`YouTube Analytics: ${err.message}`);
         }

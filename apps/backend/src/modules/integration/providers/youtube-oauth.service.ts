@@ -6,6 +6,12 @@ import { OAuth2Client } from 'google-auth-library';
 export class YoutubeOAuthService implements OnModuleInit {
   private readonly logger = new Logger(YoutubeOAuthService.name);
   private configured = false;
+  readonly requiredScopes = [
+    'https://www.googleapis.com/auth/youtube.readonly',
+    'https://www.googleapis.com/auth/youtube.upload',
+    'https://www.googleapis.com/auth/yt-analytics.readonly',
+    'https://www.googleapis.com/auth/yt-analytics-monetary.readonly',
+  ];
 
   onModuleInit() {
     const clientId     = process.env.YOUTUBE_CLIENT_ID?.trim();
@@ -51,10 +57,7 @@ export class YoutubeOAuthService implements OnModuleInit {
     return client.generateAuthUrl({
       access_type: 'offline',
       scope: [
-        'https://www.googleapis.com/auth/youtube.readonly',
-        'https://www.googleapis.com/auth/youtube.upload',
-        'https://www.googleapis.com/auth/youtube.force-ssl',
-        'https://www.googleapis.com/auth/yt-analytics.readonly',
+        ...this.requiredScopes,
         'https://www.googleapis.com/auth/userinfo.profile',
         'https://www.googleapis.com/auth/userinfo.email',
       ],
@@ -72,6 +75,7 @@ export class YoutubeOAuthService implements OnModuleInit {
     channelName: string;
     pictureUrl?: string;
     subscriberCount?: number;
+    grantedScopes: string[];
   }> {
     const client = this.createClient();
     const { tokens } = await client.getToken(code);
@@ -94,6 +98,7 @@ export class YoutubeOAuthService implements OnModuleInit {
       channelName: channel.snippet?.title || 'YouTube Channel',
       pictureUrl: channel.snippet?.thumbnails?.default?.url,
       subscriberCount: parseInt(channel.statistics?.subscriberCount || '0'),
+      grantedScopes: String(tokens.scope || '').split(/\s+/).filter(Boolean),
     };
   }
 
@@ -104,12 +109,24 @@ export class YoutubeOAuthService implements OnModuleInit {
   }> {
     const client = this.createClient();
     client.setCredentials({ refresh_token: refreshToken });
-    const { credentials } = await client.refreshAccessToken();
+    let credentials;
+    try {
+      ({ credentials } = await client.refreshAccessToken());
+    } catch (err: any) {
+      if (err?.response?.data?.error === 'invalid_grant' || err?.message?.includes('invalid_grant')) {
+        throw new BadRequestException('YouTube authorization expired or was revoked. Reconnect YouTube and grant analytics scopes.');
+      }
+      throw err;
+    }
 
     return {
       accessToken: credentials.access_token!,
       expiryDate: new Date(credentials.expiry_date!),
     };
+  }
+
+  getMissingScopes(grantedScopes: string[] = []) {
+    return this.requiredScopes.filter((scope) => !grantedScopes.includes(scope));
   }
 
   // ── Get channel info ──────────────────────────────────────

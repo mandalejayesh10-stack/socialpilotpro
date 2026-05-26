@@ -2,13 +2,11 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../database/prisma.service';
 import { NotificationService } from '../notification/notification.service';
+import * as crypto from 'crypto';
 
 /**
- * Retries failed posts up to 3 times with exponential backoff.
- *
- * FIX: Only retry posts that failed within the last 2 hours (not old posts).
- * FIX: Track retry count in a dedicated field, not by parsing error strings.
- * FIX: Don't retry posts that are more than 24h past their scheduled time.
+ * Retries only transient publish failures. Media validation, account permission,
+ * local storage, and codec/dimension errors are intentionally not retried.
  */
 @Injectable()
 export class PostRetryService {
@@ -20,7 +18,6 @@ export class PostRetryService {
     private notifications: NotificationService,
   ) {}
 
-  // Run every 15 minutes — retry recently failed posts
   @Cron('*/15 * * * *')
   async retryFailedPosts() {
     const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
@@ -45,33 +42,25 @@ export class PostRetryService {
 
     for (const post of failed) {
       const failedAttempts = post.publishLogs?.length || 0;
-
-      // Check if the error is permanent (permissions, quota, invalid account)
-      // — no point retrying these, they need human action
       const lastError = post.error || '';
       const isPermanent = this.isPermanentError(lastError);
+      const isRetriable = this.isRetriableError(lastError);
 
-      if (isPermanent) {
-        this.logger.warn(`[Retry] Post ${post.id} has permanent error — skipping retry: ${lastError.slice(0, 100)}`);
-        await this.notifications.create({
-          organizationId: post.integration.organizationId,
-          title: 'Post requires attention',
-          message: `A ${post.integration.platform} post failed with a permanent error that cannot be auto-retried. ${lastError.slice(0, 120)}`,
-          type: 'error',
-          link: `/dashboard/calendar`,
-        });
+      if (isPermanent || !isRetriable) {
+        this.logger.warn(`[Retry] Post ${post.id} is not retryable - skipping retry: ${lastError.slice(0, 100)}`);
+        await this.markTerminal(post.id, 'VALIDATION_FAILED', this.toFriendlyError(lastError));
+        await this.notifyOnce(post.integration.organizationId, post.id, 'Post requires attention',
+          `A ${post.integration.platform} post needs an account or media fix before it can publish. ${this.toFriendlyError(lastError)}`);
+        await this.writeDeadLetter(post.id, post.integration.platform as any, lastError);
         continue;
       }
 
       if (failedAttempts >= this.MAX_RETRIES) {
-        this.logger.warn(`[Retry] Post ${post.id} exceeded max retries (${this.MAX_RETRIES}) — giving up`);
-        await this.notifications.create({
-          organizationId: post.integration.organizationId,
-          title: 'Post failed permanently',
-          message: `A ${post.integration.platform} post failed after ${this.MAX_RETRIES} attempts. Please check your account connection and reschedule.`,
-          type: 'error',
-          link: `/dashboard/calendar`,
-        });
+        this.logger.warn(`[Retry] Post ${post.id} exceeded max retries (${this.MAX_RETRIES}) - giving up`);
+        await this.markTerminal(post.id, 'RETRY_EXHAUSTED', lastError.slice(0, 500));
+        await this.notifyOnce(post.integration.organizationId, post.id, 'Post failed permanently',
+          `A ${post.integration.platform} post failed after ${this.MAX_RETRIES} attempts. Please check your account connection and reschedule.`);
+        await this.writeDeadLetter(post.id, post.integration.platform as any, lastError);
         continue;
       }
 
@@ -86,6 +75,7 @@ export class PostRetryService {
           error: `[retry:${failedAttempts + 1}/${this.MAX_RETRIES}] ${post.error?.replace(/\[retry:\d+\/\d+\] /, '') || ''}`,
         },
       });
+      await this.prisma.$executeRawUnsafe(`UPDATE "Post" SET "retryCount" = COALESCE("retryCount", 0) + 1 WHERE id = $1`, post.id);
 
       try {
         await this.prisma.publishLog.create({
@@ -98,30 +88,121 @@ export class PostRetryService {
         });
       } catch { /* ignore log failure */ }
 
-      this.logger.log(`[Retry] Post ${post.id} — attempt ${failedAttempts + 1}/${this.MAX_RETRIES} at ${retryAt.toISOString()} (+${backoffMinutes}min)`);
+      this.logger.log(`[Retry] Post ${post.id} - attempt ${failedAttempts + 1}/${this.MAX_RETRIES} at ${retryAt.toISOString()} (+${backoffMinutes}min)`);
     }
   }
 
-  /**
-   * Errors that cannot be fixed by retrying — require human action.
-   * Retrying these wastes API quota and creates noise.
-   */
   private isPermanentError(error: string): boolean {
     const permanent = [
-      'API access blocked',           // Meta code 200 — permissions not approved
-      'code 200',                      // Meta permissions
-      'code 368',                      // Meta temporarily blocked
-      'quotaExceeded',                 // YouTube daily quota
-      'reconnect your',                // Token invalid
-      'Please reconnect',              // Token invalid
-      'Token refresh failed',          // Can't refresh token
-      'Instagram requires at least',   // No media — scheduling error
-      'YouTube requires a video',      // No video — scheduling error
+      'API access blocked',
+      'code 200',
+      'quotaExceeded',
+      'reconnect your',
+      'Please reconnect',
+      'Token refresh failed',
+      'Instagram requires at least',
+      'YouTube requires a video',
+      'permanent public HTTPS',
+      'local storage',
+      'STORAGE_PROVIDER',
+      'VALIDATION_FAILED',
+      'unsupported codec',
+      'unsupported file',
+      'minimum resolution',
+      'invalid dimensions',
+      'invalid media',
+      'invalid parameter',
+      'code 100',
+      'code 190',
+      'missing permissions',
+      'permission',
+      'Authorization Error',
+      'OAuthException',
     ];
     return permanent.some((p) => error.toLowerCase().includes(p.toLowerCase()));
   }
 
-  // Daily cleanup — archive old error posts
+  private isRetriableError(error: string): boolean {
+    const retriable = [
+      '429',
+      'rate limit',
+      'too many requests',
+      'timeout',
+      'timed out',
+      'ECONNRESET',
+      'ECONNREFUSED',
+      'ETIMEDOUT',
+      'ENOTFOUND',
+      'EAI_AGAIN',
+      'socket hang up',
+      'temporarily unavailable',
+      'try again later',
+      'server error',
+      '500',
+      '502',
+      '503',
+      '504',
+    ];
+    return retriable.some((p) => error.toLowerCase().includes(p.toLowerCase()));
+  }
+
+  private toFriendlyError(error: string): string {
+    const lower = error.toLowerCase();
+    if (!error) return 'Please open the post details for more information.';
+    if (lower.includes('local storage') || lower.includes('permanent public https')) {
+      return 'Preparing secure cloud upload must complete before this post can publish.';
+    }
+    if (lower.includes('permission') || lower.includes('token')) {
+      return 'Please reconnect the account and confirm the requested publishing permissions.';
+    }
+    if (lower.includes('invalid media') || lower.includes('codec') || lower.includes('resolution')) {
+      return 'The media needs processing before this post can publish.';
+    }
+    return error.slice(0, 140);
+  }
+
+  private async notifyOnce(organizationId: string, postId: string, title: string, message: string) {
+    const recent = await this.prisma.notification.findFirst({
+      where: {
+        organizationId,
+        title,
+        link: `/dashboard/calendar?post=${postId}`,
+        createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+        deletedAt: null,
+      },
+    });
+    if (recent) return;
+    await this.notifications.create({
+      organizationId,
+      title,
+      message,
+      type: 'error',
+      link: `/dashboard/calendar?post=${postId}`,
+    });
+  }
+
+  private async writeDeadLetter(postId: string, platform: any, error: string) {
+    try {
+      await this.prisma.$executeRawUnsafe(`
+        INSERT INTO "PublishLog" ("id", "postId", "platform", "status", "error", "attempt", "createdAt")
+        VALUES ($1, $2, $3::"Platform", 'DEAD_LETTERED'::"PublishLogStatus", $4, 1, NOW())
+      `, crypto.randomUUID(), postId, platform, error.slice(0, 1000));
+    } catch { /* ignore log failure */ }
+  }
+
+  private async markTerminal(postId: string, state: 'VALIDATION_FAILED' | 'RETRY_EXHAUSTED', reason: string) {
+    await this.prisma.$executeRawUnsafe(`
+      UPDATE "Post"
+      SET state = $2::"State",
+          "terminalReason" = $3,
+          "claimToken" = NULL,
+          "lockedAt" = NULL,
+          "lockedBy" = NULL,
+          "updatedAt" = NOW()
+      WHERE id = $1
+    `, postId, state, reason);
+  }
+
   @Cron('0 3 * * *')
   async cleanupOldErrors() {
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);

@@ -13,6 +13,6 @@ import { TokenRefreshService } from './token-refresh.service';
     YoutubeOAuthService,
     TokenRefreshService,
   ],
-  exports: [IntegrationService, TokenRefreshService],
+  exports: [IntegrationService, TokenRefreshService, MetaOAuthService, YoutubeOAuthService],
 })
 export class IntegrationModule {}

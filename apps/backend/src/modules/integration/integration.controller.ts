@@ -8,7 +8,9 @@ import { MetaOAuthService } from './providers/meta-oauth.service';
 import { YoutubeOAuthService } from './providers/youtube-oauth.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { OrgMemberGuard } from '../../common/guards/org-member.guard';
-import { CurrentOrg } from '../../common/decorators/current-user.decorator';
+import { PermissionsGuard } from '../../common/guards/permissions.guard';
+import { CurrentOrg, CurrentUser } from '../../common/decorators/current-user.decorator';
+import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 
 @ApiTags('Integrations')
@@ -55,17 +57,17 @@ export class IntegrationController {
 
   // ── Meta OAuth ────────────────────────────────────────────
   @Get('meta/connect')
-  @Public()
+  @UseGuards(OrgMemberGuard, PermissionsGuard)
+  @RequirePermissions('integrations:write')
   @ApiOperation({ summary: 'Start Meta OAuth flow' })
-  connectMeta(
+  async connectMeta(
+    @CurrentOrg() org: any,
+    @CurrentUser() user: any,
     @Query('x-org-id') orgId: string,
     @Query('orgId') orgId2: string,
     @Res() res: Response,
   ) {
-    const organizationId = orgId || orgId2;
-    if (!organizationId) {
-      return res.status(400).send('Missing x-org-id parameter');
-    }
+    const organizationId = org?.id || orgId || orgId2;
     if (!this.metaOAuth.isConfigured()) {
       return res.status(503).send(this.buildConfigErrorPage(
         'Meta (Facebook + Instagram)',
@@ -74,7 +76,7 @@ export class IntegrationController {
         process.env.FRONTEND_URL || 'http://localhost:4200',
       ));
     }
-    const url = this.integrationService.getMetaAuthUrl(organizationId);
+    const url = await this.integrationService.getMetaAuthUrl(organizationId, user.id);
     res.redirect(url);
   }
 
@@ -101,17 +103,17 @@ export class IntegrationController {
 
   // ── YouTube OAuth ─────────────────────────────────────────
   @Get('youtube/connect')
-  @Public()
+  @UseGuards(OrgMemberGuard, PermissionsGuard)
+  @RequirePermissions('integrations:write')
   @ApiOperation({ summary: 'Start YouTube OAuth flow' })
-  connectYoutube(
+  async connectYoutube(
+    @CurrentOrg() org: any,
+    @CurrentUser() user: any,
     @Query('x-org-id') orgId: string,
     @Query('orgId') orgId2: string,
     @Res() res: Response,
   ) {
-    const organizationId = orgId || orgId2;
-    if (!organizationId) {
-      return res.status(400).send('Missing x-org-id parameter');
-    }
+    const organizationId = org?.id || orgId || orgId2;
     if (!this.youtubeOAuth.isConfigured()) {
       return res.status(503).send(this.buildConfigErrorPage(
         'YouTube',
@@ -120,7 +122,7 @@ export class IntegrationController {
         process.env.FRONTEND_URL || 'http://localhost:4200',
       ));
     }
-    const url = this.integrationService.getYoutubeAuthUrl(organizationId);
+    const url = await this.integrationService.getYoutubeAuthUrl(organizationId, user.id);
     res.redirect(url);
   }
 
@@ -142,7 +144,8 @@ export class IntegrationController {
 
   // ── Disconnect ────────────────────────────────────────────
   @Delete(':id')
-  @UseGuards(OrgMemberGuard)
+  @UseGuards(OrgMemberGuard, PermissionsGuard)
+  @RequirePermissions('integrations:write')
   @ApiOperation({ summary: 'Disconnect a social account' })
   async disconnect(@CurrentOrg() org: any, @Param('id') id: string) {
     return this.integrationService.disconnect(org.id, id);

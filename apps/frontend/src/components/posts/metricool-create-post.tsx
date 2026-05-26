@@ -30,6 +30,22 @@ const CHAR_LIMITS: Record<string, number> = {
   YOUTUBE:   5000,
 };
 
+function MediaThumb({ media, className, aspect = 'video' }: { media: any; className: string; aspect?: 'video' | 'square' }) {
+  const [failed, setFailed] = useState(false);
+  const isVideo = media?.type === 'VIDEO' || media?.type === 'PROCESSED_VIDEO' || media?.mimeType?.startsWith?.('video/');
+  const src = resolveMediaUrl(media?.thumbnail || (!isVideo ? media?.url : ''));
+
+  if (!src || failed) {
+    return (
+      <div className={clsx(className, 'bg-gray-100 dark:bg-surface-hover flex items-center justify-center')}>
+        {isVideo ? <Video size={aspect === 'square' ? 24 : 28} className="text-gray-400" /> : <Image size={24} className="text-gray-400" />}
+      </div>
+    );
+  }
+
+  return <img src={src} alt="" className={className} onError={() => setFailed(true)} />;
+}
+
 interface Props {
   open: boolean;
   onClose: () => void;
@@ -122,6 +138,10 @@ export function MetricoolCreatePost({ open, onClose, integrations, defaultDate, 
                   errors.push(`${file.name}: ${e}`);
                   toast.error(`Media issue for ${platform}`, e);
                 });
+              } else if (validation.publishReady === false) {
+                const reason = validation.publishBlockedReason || validation.publicUrlValidation?.reason || 'Media is not publish-ready';
+                errors.push(`${file.name}: ${reason}`);
+                toast.error(`${platform} media is not publish-ready`, reason);
               } else if (validation.warnings?.length > 0) {
                 validation.warnings.forEach((w: string) => toast.warning?.(`${platform} warning`, w));
               } else {
@@ -198,6 +218,10 @@ export function MetricoolCreatePost({ open, onClose, integrations, defaultDate, 
     if (!content.trim()) { toast.error('Write some content first'); return; }
     if (!publishDate) { toast.error('Set a publish date'); return; }
     if (isOverLimit) { toast.error('Content too long'); return; }
+    if (uploadErrors.length > 0) {
+      toast.error('Media is not publish-ready', uploadErrors[0]);
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -206,7 +230,7 @@ export function MetricoolCreatePost({ open, onClose, integrations, defaultDate, 
         content,
         hashtags,
         publishDate: new Date(publishDate).toISOString(),
-        mediaUrls: mediaFiles.map((m) => resolveMediaUrl(m.url)),
+        mediaUrls: mediaFiles.map((m) => m.url),
       });
       onSuccess();
     } catch (e: any) {
@@ -367,7 +391,7 @@ export function MetricoolCreatePost({ open, onClose, integrations, defaultDate, 
               <div className="flex gap-2 px-4 py-2 border-t border-gray-100 dark:border-surface-border flex-shrink-0 overflow-x-auto">
                 {mediaFiles.map((m) => (
                   <div key={m.id} className="relative flex-shrink-0">
-                    <img src={resolveMediaUrl(m.thumbnail || m.url)} alt="" className="w-16 h-16 rounded-lg object-cover" />
+                    <MediaThumb media={m} className="w-16 h-16 rounded-lg object-cover" aspect="square" />
                     <button onClick={() => setMediaFiles((prev) => prev.filter((x) => x.id !== m.id))} className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center">
                       <X size={9} className="text-white" />
                     </button>
@@ -519,7 +543,7 @@ export function MetricoolCreatePost({ open, onClose, integrations, defaultDate, 
                   )}
                   {/* Media */}
                   {mediaFiles[0] && (
-                    <img src={resolveMediaUrl(mediaFiles[0].thumbnail || mediaFiles[0].url)} alt="" className="w-full aspect-video object-cover" />
+                    <MediaThumb media={mediaFiles[0]} className="w-full aspect-video object-cover" />
                   )}
                   {/* Actions */}
                   <div className="flex border-t border-gray-100 mt-1">
@@ -542,7 +566,7 @@ export function MetricoolCreatePost({ open, onClose, integrations, defaultDate, 
                     <button className="ml-auto text-gray-400">···</button>
                   </div>
                   {mediaFiles[0] ? (
-                    <img src={resolveMediaUrl(mediaFiles[0].thumbnail || mediaFiles[0].url)} alt="" className="w-full aspect-square object-cover" />
+                    <MediaThumb media={mediaFiles[0]} className="w-full aspect-square object-cover" aspect="square" />
                   ) : (
                     <div className="w-full aspect-square bg-gray-100 flex items-center justify-center">
                       <Image size={32} className="text-gray-300" />
@@ -565,7 +589,7 @@ export function MetricoolCreatePost({ open, onClose, integrations, defaultDate, 
               {previewPlatform === 'YOUTUBE' && (
                 <div className={clsx('bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden', previewDevice === 'mobile' ? 'w-64' : 'w-full')}>
                   {mediaFiles[0] ? (
-                    <img src={resolveMediaUrl(mediaFiles[0].thumbnail || mediaFiles[0].url)} alt="" className="w-full aspect-video object-cover" />
+                    <MediaThumb media={mediaFiles[0]} className="w-full aspect-video object-cover" />
                   ) : (
                     <div className="w-full aspect-video bg-gray-900 flex items-center justify-center">
                       <Youtube size={32} className="text-red-500" />

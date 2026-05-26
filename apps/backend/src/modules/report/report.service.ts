@@ -7,6 +7,7 @@ import { EmailService } from '../notification/email.service';
 import { Platform } from '@prisma/client';
 import { v4 as uuidv4 } from 'uuid';
 import * as path from 'path';
+import * as fs from 'fs';
 
 @Injectable()
 export class ReportService {
@@ -95,7 +96,7 @@ export class ReportService {
 
       const filename = `report_${reportId}_${uuidv4().slice(0, 8)}`;
       const pdfPath = await this.pdf.generateReport(html, filename);
-      const pdfUrl = `/reports/pdf/${path.basename(pdfPath)}`;
+      const pdfUrl = `/api/reports/${reportId}/download`;
 
       await this.prisma.report.update({
         where: { id: reportId },
@@ -134,5 +135,19 @@ export class ReportService {
     });
     if (!report) throw new NotFoundException('Report not found');
     return report;
+  }
+
+  async getReportFile(organizationId: string, reportId: string) {
+    const report = await this.getReport(organizationId, reportId);
+    const filename = report.pdfUrl?.startsWith('/api/reports/')
+      ? `report_${reportId}_`
+      : path.basename(report.pdfUrl || '');
+    const reportsDir = path.join(process.cwd(), 'reports', 'pdf');
+    const match = fs.readdirSync(reportsDir)
+      .find((file) => file === filename || file.startsWith(filename));
+    if (!match) throw new NotFoundException('Report PDF not found');
+    const fullPath = path.resolve(reportsDir, match);
+    if (!fullPath.startsWith(path.resolve(reportsDir))) throw new NotFoundException('Report PDF not found');
+    return { fullPath, filename: match };
   }
 }

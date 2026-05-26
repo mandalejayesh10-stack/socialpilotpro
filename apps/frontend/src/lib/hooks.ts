@@ -48,6 +48,15 @@ export function useTopPosts(platform: string, period = '30d') {
   );
 }
 
+export function useAnalyticsSyncStatus() {
+  const orgId = useOrgId();
+  return useSWR(
+    orgId ? ['analytics/sync-status', orgId] : null,
+    () => analyticsApi.syncStatus(orgId),
+    { refreshInterval: 60_000, revalidateOnFocus: false },
+  );
+}
+
 export function useContentTypes(platform: string, period = '30d') {
   const orgId = useOrgId();
   return useSWR(
@@ -63,6 +72,15 @@ export function useHashtags(platform: string, period = '30d') {
     orgId ? ['analytics/hashtags', orgId, platform, period] : null,
     () => analyticsApi.hashtags(orgId, platform.toLowerCase(), period),
     { revalidateOnFocus: false },
+  );
+}
+
+export function useDemographics(platform: string, period = '30d') {
+  const orgId = useOrgId();
+  return useSWR(
+    orgId ? ['analytics/demographics', orgId, platform, period] : null,
+    () => analyticsApi.demographics(orgId, platform.toLowerCase(), period),
+    { refreshInterval: 60_000, revalidateOnFocus: false },
   );
 }
 

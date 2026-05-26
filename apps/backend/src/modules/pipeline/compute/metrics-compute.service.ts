@@ -25,15 +25,16 @@ export class MetricsComputeService {
       const likes = raw.likes || raw.like_count || 0;
       const comments = raw.comments || raw.comment_count || 0;
       const shares = raw.shares || raw.share_count || 0;
-      const saves = raw.saved || 0;
+      const saves = raw.saved || raw.saves || 0;
       const reach = raw.reach || raw.post_reach || 0;
       const impressions = raw.impressions || raw.post_impressions || 0;
-      const videoViews = raw.video_views || raw.views || 0;
-      const clicks = raw.post_clicks || raw.clicks || 0;
+      const videoViews = raw.video_views || raw.post_video_views || raw.plays || raw.views || 0;
+      const clicks = raw.post_clicks || raw.clicks || raw.impressions_clicks || 0;
 
       // Engagement rate = (likes + comments + shares + saves) / reach * 100
-      const engagementRate = reach > 0
-        ? ((likes + comments + shares + saves) / reach) * 100
+      const denominator = reach || impressions || videoViews;
+      const engagementRate = denominator > 0
+        ? ((likes + comments + shares + saves) / denominator) * 100
         : 0;
 
       await this.prisma.postMetrics.upsert({
@@ -103,6 +104,7 @@ export class MetricsComputeService {
     let following = 0;
     let subscribers = 0;
     let totalViews = 0;
+    let watchTimeMinutes = 0;
 
     if (integration.platform === 'INSTAGRAM') {
       followers = rawData.followers_count || 0;
@@ -112,6 +114,7 @@ export class MetricsComputeService {
     } else if (integration.platform === 'YOUTUBE') {
       subscribers = rawData.subscriberCount || 0;
       totalViews = rawData.viewCount || 0;
+      watchTimeMinutes = rawData.watchTimeMinutes || 0;
     }
 
     const currentFollowers = integration.platform === 'YOUTUBE' ? subscribers : followers;
@@ -136,6 +139,7 @@ export class MetricsComputeService {
         shares: true,
         reach: true,
         impressions: true,
+        videoViews: true,
       },
       _avg: {
         engagementRate: true,
@@ -164,10 +168,11 @@ export class MetricsComputeService {
         totalComments: postAgg._sum.comments || 0,
         totalShares: postAgg._sum.shares || 0,
         totalReach: postAgg._sum.reach || 0,
-        totalImpressions: postAgg._sum.impressions || 0,
+        totalImpressions: postAgg._sum.impressions || postAgg._sum.videoViews || 0,
         avgEngagementRate: parseFloat((postAgg._avg.engagementRate || 0).toFixed(4)),
         subscribers: integration.platform === 'YOUTUBE' ? subscribers : null,
         totalViews: integration.platform === 'YOUTUBE' ? totalViews : null,
+        watchTimeMinutes: integration.platform === 'YOUTUBE' ? watchTimeMinutes : null,
       },
       update: {
         followers,
@@ -179,10 +184,11 @@ export class MetricsComputeService {
         totalComments: postAgg._sum.comments || 0,
         totalShares: postAgg._sum.shares || 0,
         totalReach: postAgg._sum.reach || 0,
-        totalImpressions: postAgg._sum.impressions || 0,
+        totalImpressions: postAgg._sum.impressions || postAgg._sum.videoViews || 0,
         avgEngagementRate: parseFloat((postAgg._avg.engagementRate || 0).toFixed(4)),
         subscribers: integration.platform === 'YOUTUBE' ? subscribers : null,
         totalViews: integration.platform === 'YOUTUBE' ? totalViews : null,
+        watchTimeMinutes: integration.platform === 'YOUTUBE' ? watchTimeMinutes : null,
         computedAt: new Date(),
       },
     });
@@ -224,6 +230,7 @@ export class MetricsComputeService {
     const avgEngagement = metrics.reduce((sum, m) => sum + m.avgEngagementRate, 0) / metrics.length;
     const totalReach = metrics.reduce((sum, m) => sum + m.totalReach, 0);
     const totalImpressions = metrics.reduce((sum, m) => sum + m.totalImpressions, 0);
+    const totalViews = metrics.reduce((sum, m) => sum + (m.totalViews || 0), 0);
     const totalPosts = metrics.reduce((sum, m) => sum + m.totalPosts, 0);
 
     // Build timeline arrays for charts
@@ -239,7 +246,7 @@ export class MetricsComputeService {
 
     const reachTimeline = metrics.map((m) => ({
       date: m.periodDate.toISOString().split('T')[0],
-      value: m.totalReach,
+      value: m.platform === 'YOUTUBE' ? (m.totalViews || m.totalReach) : m.totalReach,
     }));
 
     // Compute best posting time from post metrics
@@ -306,7 +313,7 @@ export class MetricsComputeService {
         avgEngagementRate: parseFloat(avgEngagement.toFixed(4)),
         totalPosts,
         totalReach,
-        totalImpressions,
+        totalImpressions: platform === 'YOUTUBE' ? totalViews : totalImpressions,
         bestPostingHour: bestHour,
         bestPostingDay: bestDay,
         topContentType,
@@ -321,7 +328,7 @@ export class MetricsComputeService {
         avgEngagementRate: parseFloat(avgEngagement.toFixed(4)),
         totalPosts,
         totalReach,
-        totalImpressions,
+        totalImpressions: platform === 'YOUTUBE' ? totalViews : totalImpressions,
         bestPostingHour: bestHour,
         bestPostingDay: bestDay,
         topContentType,

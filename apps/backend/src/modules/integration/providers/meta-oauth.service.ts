@@ -5,6 +5,14 @@ import axios from 'axios';
 export class MetaOAuthService implements OnModuleInit {
   private readonly logger = new Logger(MetaOAuthService.name);
   private configured = false;
+  readonly requiredInsightPermissions = [
+    'pages_read_engagement',
+    'read_insights',
+    'pages_show_list',
+    'business_management',
+    'instagram_basic',
+    'instagram_manage_insights',
+  ];
 
   get META_VERSION() { return process.env.META_API_VERSION || 'v21.0'; }
   get BASE_URL() { return `https://graph.facebook.com/${this.META_VERSION}`; }
@@ -72,6 +80,7 @@ export class MetaOAuthService implements OnModuleInit {
     accessToken: string;
     userId: string;
     name: string;
+    permissions: string[];
   }> {
     const backendUrl = process.env.BACKEND_INTERNAL_URL || 'http://localhost:3000';
 
@@ -107,6 +116,7 @@ export class MetaOAuthService implements OnModuleInit {
       accessToken: longToken,
       userId: meRes.data.id,
       name: meRes.data.name,
+      permissions: await this.getGrantedPermissions(longToken),
     };
   }
 
@@ -141,12 +151,13 @@ export class MetaOAuthService implements OnModuleInit {
     username: string;
     pictureUrl?: string;
     followersCount?: number;
+    accountType?: string;
   } | null> {
     try {
       const res = await axios.get(`${this.BASE_URL}/${pageId}`, {
         params: {
           access_token: pageToken,
-          fields: 'instagram_business_account{id,name,username,profile_picture_url,followers_count}',
+          fields: 'instagram_business_account{id,name,username,profile_picture_url,followers_count,account_type}',
         },
       });
 
@@ -159,6 +170,7 @@ export class MetaOAuthService implements OnModuleInit {
         username: ig.username,
         pictureUrl: ig.profile_picture_url,
         followersCount: ig.followers_count,
+        accountType: ig.account_type,
       };
     } catch {
       this.logger.warn(`No Instagram account for page ${pageId}`);
@@ -193,6 +205,24 @@ export class MetaOAuthService implements OnModuleInit {
     } catch {
       return false;
     }
+  }
+
+  async getGrantedPermissions(token: string): Promise<string[]> {
+    try {
+      const res = await axios.get(`${this.BASE_URL}/me/permissions`, {
+        params: { access_token: token },
+      });
+      return (res.data.data || [])
+        .filter((item: any) => item.status === 'granted')
+        .map((item: any) => item.permission);
+    } catch (err: any) {
+      this.logger.warn(`Unable to read Meta permissions: ${err.message}`);
+      return [];
+    }
+  }
+
+  getMissingInsightPermissions(granted: string[] = []) {
+    return this.requiredInsightPermissions.filter((permission) => !granted.includes(permission));
   }
 
   // ── Fetch basic stats ─────────────────────────────────────

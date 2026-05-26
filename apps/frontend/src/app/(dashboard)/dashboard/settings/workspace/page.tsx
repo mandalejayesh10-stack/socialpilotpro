@@ -64,9 +64,9 @@ export default function WorkspacePage() {
   const [editingOrg, setEditingOrg] = useState<any>(null);
   const toast = useToast();
 
-  const { data: members = [], isLoading: loadingMembers } = useSWR(
+  const { data: members = [], isLoading: loadingMembers } = useSWR<any[]>(
     currentOrg ? ['members', currentOrg.id] : null,
-    () => orgApi.getMembers(currentOrg!.id),
+    () => orgApi.getMembers(currentOrg!.id) as Promise<any[]>,
   );
 
   const { data: integrations = [] } = useSWR(
@@ -492,10 +492,10 @@ function CreateBrandModal({ open, onClose, onSuccess }: any) {
     if (!name.trim()) { toast.error('Brand name is required'); return; }
     setLoading(true);
     try {
-      const org = await orgApi.create({ name: name.trim(), timezone, brandColor });
+      const org = await orgApi.create({ name: name.trim(), timezone, brandColor }) as any;
       if (logoFile) {
         try {
-          const uploaded = await mediaApi.upload(org.id, logoFile);
+          const uploaded = await mediaApi.upload(org.id, logoFile) as any;
           const logoUrl = resolveMediaUrl(uploaded.url);
           await orgApi.update(org.id, { logoUrl });
           org.logoUrl = logoUrl;

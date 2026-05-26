@@ -4,7 +4,12 @@ const isProd = process.env.NODE_ENV === 'production';
 
 // In production: BACKEND_PROXY_URL points to Railway backend
 // In dev: always localhost
-const BACKEND_PROXY_URL = process.env.BACKEND_PROXY_URL || 'http://localhost:3000';
+if (isProd && !process.env.BACKEND_PROXY_URL) {
+  throw new Error('BACKEND_PROXY_URL is required in production and must point to the Railway backend.');
+}
+const BACKEND_PROXY_URL = isProd
+  ? process.env.BACKEND_PROXY_URL!
+  : (process.env.BACKEND_PROXY_URL || 'http://localhost:3000');
 
 const nextConfig: NextConfig = {
   ...(isProd ? { output: 'standalone' } : {}),
@@ -37,8 +42,6 @@ const nextConfig: NextConfig = {
       { protocol: 'https', hostname: '**.ytimg.com' },
       { protocol: 'https', hostname: '**.googleusercontent.com' },
       { protocol: 'https', hostname: '**.supabase.co' },
-      { protocol: 'https', hostname: '**.ngrok-free.app' },
-      { protocol: 'https', hostname: '**.ngrok-free.dev' },
       { protocol: 'https', hostname: '**.railway.app' },
       { protocol: 'https', hostname: '**.up.railway.app' },
     ],

@@ -50,7 +50,7 @@ export class InvoiceService {
         margin: { top: '20mm', right: '15mm', bottom: '20mm', left: '15mm' },
       });
 
-      const pdfUrl = `/reports/invoices/${filename}`;
+      const pdfUrl = `/api/billing/invoices/${invoiceId}/pdf/download`;
 
       // Update invoice with PDF URL
       await this.prisma.invoice.update({
@@ -62,6 +62,22 @@ export class InvoiceService {
     } finally {
       await browser.close();
     }
+  }
+
+  async getInvoicePdfFile(organizationId: string, invoiceId: string) {
+    const invoice = await this.prisma.invoice.findFirst({
+      where: { id: invoiceId, organizationId },
+    });
+    if (!invoice) throw new NotFoundException('Invoice not found');
+
+    const filename = invoice.pdfUrl?.startsWith('/api/billing/')
+      ? `invoice_${invoice.invoiceNumber.replace(/[^a-z0-9]/gi, '_')}.pdf`
+      : path.basename(invoice.pdfUrl || '');
+    const fullPath = path.resolve(this.invoiceDir, filename);
+    if (!fullPath.startsWith(path.resolve(this.invoiceDir)) || !fs.existsSync(fullPath)) {
+      throw new NotFoundException('Invoice PDF not found');
+    }
+    return { fullPath, filename };
   }
 
   async createInvoice(data: {

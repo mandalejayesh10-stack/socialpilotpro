@@ -27,6 +27,7 @@ export class PostSchedulerService {
 
   @Cron('* * * * *')
   async processQueue() {
+    if (process.env.ENABLE_ORCHESTRATOR_PUBLISHER !== 'true') return;
     const due = await this.prisma.post.findMany({
       where: { state: 'QUEUE', publishDate: { lte: new Date() }, deletedAt: null },
       include: { integration: true },
@@ -53,12 +54,27 @@ export class PostSchedulerService {
     const caption = `${post.content}${post.hashtags ? '\n\n' + post.hashtags : ''}`;
 
     if (post.integration.platform === 'INSTAGRAM') {
+      await this.assertPermanentPublicMediaUrls(mediaUrls, 'INSTAGRAM');
       await this.publishInstagram(post, token, mediaUrls, caption);
     } else if (post.integration.platform === 'FACEBOOK') {
+      await this.assertPermanentPublicMediaUrls(mediaUrls, 'FACEBOOK');
       await this.publishFacebook(post, token, mediaUrls, caption);
     } else if (post.integration.platform === 'YOUTUBE') {
       const refresh = post.integration.refreshToken ? decrypt(post.integration.refreshToken) : null;
       await this.publishYoutube(post, token, refresh, mediaUrls, caption);
+    }
+  }
+
+  private async assertPermanentPublicMediaUrls(mediaUrls: string[], platform: string) {
+    for (const url of mediaUrls) {
+      if (!url.startsWith('https://') || url.includes('localhost') || url.includes('127.0.0.1') || url.includes('ngrok-free') || url.includes('/uploads/')) {
+        throw new Error(`${platform} publishing requires permanent public HTTPS CDN media URLs from Supabase, S3, or Cloudflare R2. Invalid URL: ${url}`);
+      }
+      const res = await axios.head(url, { timeout: 15000, validateStatus: () => true });
+      const contentType = String(res.headers['content-type'] || '').toLowerCase();
+      if (res.status < 200 || res.status >= 400 || (!contentType.startsWith('image/') && !contentType.startsWith('video/') && contentType !== 'application/octet-stream')) {
+        throw new Error(`${platform} media URL failed accessibility check: ${url} status=${res.status} content-type=${contentType || 'missing'}`);
+      }
     }
   }
 

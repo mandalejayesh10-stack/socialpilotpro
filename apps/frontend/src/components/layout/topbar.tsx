@@ -15,7 +15,7 @@ const PLAN_STYLES: Record<string, string> = {
 };
 
 export function Topbar() {
-  const { user, organizations, currentOrgId, setCurrentOrg, getCurrentOrg, getCurrentTier } = useAppStore();
+  const { user, organizations, currentOrg, setCurrentOrg, getCurrentTier } = useAppStore();
   const [showOrgMenu, setShowOrgMenu] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showNewPost, setShowNewPost] = useState(false);
@@ -23,7 +23,6 @@ export function Topbar() {
   const userMenuRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
-  const currentOrg = getCurrentOrg();
   const tier = getCurrentTier();
 
   // Close menus on outside click
@@ -70,7 +69,7 @@ export function Topbar() {
                   {org.name.charAt(0).toUpperCase()}
                 </div>
                 <span className="flex-1 truncate text-left">{org.name}</span>
-                {org.id === (currentOrgId || organizations[0]?.id) && (
+                {org.id === (currentOrg?.id || organizations[0]?.id) && (
                   <Check size={14} className="text-brand-400 flex-shrink-0" />
                 )}
               </button>

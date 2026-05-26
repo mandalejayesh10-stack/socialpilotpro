@@ -17,6 +17,7 @@ const cookieParser = require('cookie-parser');
 // ── Startup env validation ────────────────────────────────────
 function validateEnv(logger: Logger) {
   const REQUIRED = ['DATABASE_URL', 'JWT_SECRET', 'TOKEN_ENCRYPTION_KEY'];
+  const isProd = process.env.NODE_ENV === 'production';
   const OPTIONAL_OAUTH = [
     { key: 'GOOGLE_CLIENT_ID',     feature: 'Google OAuth login' },
     { key: 'GOOGLE_CLIENT_SECRET', feature: 'Google OAuth login' },
@@ -33,6 +34,23 @@ function validateEnv(logger: Logger) {
     logger.error(`Missing required environment variables: ${missing.join(', ')}`);
     logger.error('Add them to .env and restart the backend.');
     process.exit(1);
+  }
+
+  if (isProd) {
+    const productionRequired = ['FRONTEND_URL', 'BACKEND_INTERNAL_URL'];
+    const missingProduction = productionRequired.filter(k => !process.env[k] || process.env[k]!.trim() === '');
+    if (missingProduction.length > 0) {
+      logger.error(`Missing production environment variables: ${missingProduction.join(', ')}`);
+      process.exit(1);
+    }
+    const localUrls = productionRequired.filter(k => /localhost|127\.0\.0\.1|0\.0\.0\.0/i.test(process.env[k] || ''));
+    if (localUrls.length > 0) {
+      logger.error(`Production URLs cannot point to localhost: ${localUrls.join(', ')}`);
+      process.exit(1);
+    }
+    if (!process.env.CORS_ALLOWED_ORIGINS && process.env.FRONTEND_URL?.endsWith('.vercel.app')) {
+      logger.warn('CORS_ALLOWED_ORIGINS is not set; using FRONTEND_URL only.');
+    }
   }
 
   // Warn about optional vars
@@ -80,29 +98,20 @@ async function bootstrap() {
   });
 
   app.useStaticAssets(uploadDir,   { prefix: '/uploads' });
-  app.useStaticAssets(reportsDir,  { prefix: '/reports/pdf' });
-  app.useStaticAssets(invoicesDir, { prefix: '/reports/invoices' });
 
   // ── CORS ────────────────────────────────────────────────────
-  // Allow both localhost and ngrok tunnel simultaneously
-  const allowedOrigins = [
-    process.env.FRONTEND_URL || 'http://localhost:4200',
-    'http://localhost:4200',
-    'http://localhost:3000',
-  ].filter(Boolean);
+  const isProd = process.env.NODE_ENV === 'production';
+  const allowedOrigins = (
+    process.env.CORS_ALLOWED_ORIGINS ||
+    process.env.FRONTEND_URL ||
+    (isProd ? '' : 'http://localhost:4200,http://localhost:3000')
+  ).split(',').map((origin) => origin.trim()).filter(Boolean);
 
   app.enableCors({
     origin: (origin, callback) => {
       if (!origin) return callback(null, true);
       if (allowedOrigins.includes(origin)) return callback(null, true);
-      // Allow any ngrok subdomain
-      if (origin.endsWith('.ngrok-free.app') || origin.endsWith('.ngrok.io') || origin.endsWith('.ngrok-free.dev')) {
-        return callback(null, true);
-      }
-      // Allow Vercel preview + production deployments
-      if (origin.endsWith('.vercel.app')) return callback(null, true);
-      // Allow Railway deployments
-      if (origin.endsWith('.up.railway.app') || origin.endsWith('.railway.app')) {
+      if (!isProd && (origin.endsWith('.ngrok-free.app') || origin.endsWith('.ngrok.io') || origin.endsWith('.ngrok-free.dev'))) {
         return callback(null, true);
       }
       callback(new Error(`CORS: origin ${origin} not allowed`));
@@ -110,6 +119,16 @@ async function bootstrap() {
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'x-org-id', 'ngrok-skip-browser-warning'],
+  });
+
+  app.use((_req: any, res: any, next: any) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Referrer-Policy', 'same-origin');
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    if (isProd) {
+      res.setHeader('Strict-Transport-Security', 'max-age=15552000; includeSubDomains');
+    }
+    next();
   });
 
   // ── Global pipes / filters / interceptors ────────────────────

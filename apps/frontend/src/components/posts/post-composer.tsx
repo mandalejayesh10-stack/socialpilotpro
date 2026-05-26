@@ -155,7 +155,7 @@ export function PostComposer({ open, onClose, defaultDate, onSuccess }: PostComp
         hashtags: data.hashtags,
         title: data.title,
         publishDate: new Date(data.publishDate).toISOString(),
-        mediaUrls: mediaFiles.map(m => resolveMediaUrl(m.url)),
+        mediaUrls: mediaFiles.map(m => m.url),
       });
 
       toast.success('Post scheduled!');

@@ -9,7 +9,7 @@ export class StripeService {
   constructor() {
     if (process.env.STRIPE_SECRET_KEY) {
       this.stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-        apiVersion: '2025-04-30.basil',
+        apiVersion: '2026-02-25.clover',
       });
     }
   }
@@ -85,7 +85,7 @@ export class StripeService {
   }
 
   // ── Get subscription ──────────────────────────────────────
-  async getSubscription(subscriptionId: string) {
+  async getSubscription(subscriptionId: string): Promise<Stripe.Subscription> {
     return this.client.subscriptions.retrieve(subscriptionId);
   }
 

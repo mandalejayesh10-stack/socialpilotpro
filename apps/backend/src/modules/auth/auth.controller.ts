@@ -1,9 +1,11 @@
 import {
   Controller, Post, Get, Body, Query,
-  Res, UseGuards, HttpCode, HttpStatus, Patch,
+  Res, UseGuards, HttpCode, HttpStatus, Patch, Logger,
+  Req,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
-import { Response } from 'express';
+import { Request, Response } from 'express';
+import * as crypto from 'crypto';
 import { AuthService } from './auth.service';
 import { GoogleOAuthService } from './providers/google-oauth.service';
 import { TokenService } from './token.service';
@@ -15,6 +17,8 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
+  private readonly logger = new Logger(AuthController.name);
+
   constructor(
     private authService: AuthService,
     private googleOAuth: GoogleOAuthService,
@@ -60,7 +64,7 @@ export class AuthController {
   @Public()
   @Get('google')
   @ApiOperation({ summary: 'Redirect to Google OAuth' })
-  googleAuth(@Res() res: Response) {    if (!this.googleOAuth.isConfigured()) {
+  googleAuth(@Req() _req: Request, @Res() res: Response) {    if (!this.googleOAuth.isConfigured()) {
       // Return a helpful HTML error page instead of crashing
       return res.status(503).send(`
         <!DOCTYPE html>
@@ -97,23 +101,52 @@ export class AuthController {
       `);
     }
 
-    const url = this.googleOAuth.getAuthUrl();
+    const csrfState = this.createOAuthCsrfState();
+    res.cookie('oauth_state', csrfState, {
+      ...this.cookieOptions(),
+      maxAge: 10 * 60 * 1000,
+    });
+    const url = this.googleOAuth.getAuthUrl(csrfState);
     res.redirect(url);
   }
 
   @Public()
   @Get('google/callback')
   @ApiOperation({ summary: 'Google OAuth callback' })
-  async googleCallback(@Query('code') code: string, @Res() res: Response) {
+  async googleCallback(
+    @Query('code') code: string,
+    @Query('error') oauthError: string,
+    @Query('state') state: string,
+    @Req() req: Request,
+    @Res() res: Response,
+  ) {
+    // Handle OAuth errors (user denied, etc.)
+    if (oauthError) {
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:4200';
+      return res.redirect(`${frontendUrl}/login?error=${encodeURIComponent(oauthError)}`);
+    }
+
+    if (!code) {
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:4200';
+      return res.redirect(`${frontendUrl}/login?error=No+authorization+code+received`);
+    }
+
     try {
+      this.verifyOAuthCsrfState(state, req.cookies?.oauth_state);
       const googleUser = await this.googleOAuth.exchangeCode(code);
       const result = await this.authService.googleAuth(googleUser) as any;
       this.setTokenCookie(res, result.token);
-      // Also pass token in URL fragment so frontend can store it in localStorage
+      res.clearCookie('oauth_state', this.cookieOptions());
+
+      // CRITICAL: Always redirect to THIS app's frontend, never to any other URL
+      // FRONTEND_URL must be set to http://localhost:4200 (dev) or your Vercel URL (prod)
       const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:4200';
-      res.redirect(`${frontendUrl}/auth/callback?token=${encodeURIComponent(result.token)}`);
+      this.logger.log(`[Google OAuth] Login success for ${googleUser.email} → redirecting to ${frontendUrl}`);
+      res.redirect(`${frontendUrl}/auth/callback?login=success`);
     } catch (err: any) {
-      res.redirect(`${process.env.FRONTEND_URL}/login?error=${encodeURIComponent(err.message)}`);
+      this.logger.error(`[Google OAuth] Callback error: ${err.message}`);
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:4200';
+      res.redirect(`${frontendUrl}/login?error=${encodeURIComponent(err.message)}`);
     }
   }
 
@@ -139,16 +172,46 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Logout' })
   logout(@Res({ passthrough: true }) res: Response) {
-    res.clearCookie('token');
+    res.clearCookie('token', this.cookieOptions());
     return { message: 'Logged out successfully' };
   }
 
   private setTokenCookie(res: Response, token: string) {
     res.cookie('token', token, {
+      ...this.cookieOptions(),
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+  }
+
+  private cookieOptions() {
+    return {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    });
+      path: '/',
+    } as const;
+  }
+
+  private createOAuthCsrfState(): string {
+    const nonce = crypto.randomBytes(24).toString('base64url');
+    const expires = Date.now() + 10 * 60 * 1000;
+    const payload = Buffer.from(JSON.stringify({ nonce, exp: expires })).toString('base64url');
+    const signature = crypto.createHmac('sha256', process.env.JWT_SECRET!).update(payload).digest('base64url');
+    return `${payload}.${signature}`;
+  }
+
+  private verifyOAuthCsrfState(state: string, cookieState: string | undefined) {
+    if (!state || !cookieState || state !== cookieState || !state.includes('.')) {
+      throw new Error('Invalid OAuth state. Please try signing in again.');
+    }
+    const [payload, signature] = state.split('.');
+    const expected = crypto.createHmac('sha256', process.env.JWT_SECRET!).update(payload).digest('base64url');
+    if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+      throw new Error('Invalid OAuth state signature.');
+    }
+    const parsed = JSON.parse(Buffer.from(payload, 'base64url').toString()) as { exp: number };
+    if (parsed.exp < Date.now()) {
+      throw new Error('OAuth state expired. Please try signing in again.');
+    }
   }
 }

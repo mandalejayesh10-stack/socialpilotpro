@@ -5,6 +5,8 @@ import { PrismaService } from '../database/prisma.service';
 import { NotificationService } from '../notification/notification.service';
 import { TokenRefreshService } from '../integration/token-refresh.service';
 import { BestTimeService } from '../analytics/best-time.service';
+import { StorageService } from '../media/storage.service';
+import { MediaUrlValidatorService } from '../media/media-url-validator.service';
 import { decrypt, safeDecrypt } from '../../common/utils/crypto.util';
 import axios from 'axios';
 import { google } from 'googleapis';
@@ -18,6 +20,17 @@ const TIMEOUTS = {
   YOUTUBE_UPLOAD:           600_000,  // 10 min — large video upload
   META_API_CALL:             30_000,  // 30s — standard API calls
   AXIOS_DEFAULT:             30_000,  // 30s — default axios timeout
+  MEDIA_PREFLIGHT: 15_000,
+};
+
+type MediaPreflightResult = {
+  url: string;
+  ok: boolean;
+  status?: number;
+  contentType?: string;
+  contentLength?: number;
+  method?: 'HEAD' | 'GET';
+  reason?: string;
 };
 
 /** Wrap a promise with a timeout */
@@ -34,7 +47,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
  * Runs every minute to check for posts due for publishing.
  *
  * ROOT CAUSES FIXED:
- * 1. Media URLs were localhost — now resolved to public ngrok/backend URL
+ * 1. Meta media URLs now come from production-safe cloud storage
  * 2. No token refresh before publish — now refreshes expired tokens first
  * 3. Instagram video detection used file extension — now uses mimeType from DB
  * 4. Instagram video didn't wait for container processing — now polls status
@@ -46,8 +59,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
 export class PostSchedulerService {
   private readonly logger = new Logger(PostSchedulerService.name);
 
-  // Track in-progress post IDs to prevent duplicate publish
-  private readonly inProgress = new Set<string>();
+  private readonly workerId = `${process.env.RAILWAY_REPLICA_ID || process.env.HOSTNAME || 'local'}-${process.pid}`;
 
   constructor(
     private postService: PostService,
@@ -55,6 +67,8 @@ export class PostSchedulerService {
     private notifications: NotificationService,
     private tokenRefresh: TokenRefreshService,
     private bestTimeService: BestTimeService,
+    private storage: StorageService,
+    private mediaUrlValidator: MediaUrlValidatorService,
   ) {
     this.runPreflightCheck();
   }
@@ -96,9 +110,17 @@ export class PostSchedulerService {
     if (backendUrl.includes('localhost')) {
       this.logger.warn(`[Preflight] ⚠️  BACKEND_INTERNAL_URL is localhost (${backendUrl})`);
       this.logger.warn('[Preflight]    Instagram/Facebook image posts will FAIL — Meta cannot fetch localhost URLs');
-      this.logger.warn('[Preflight]    Fix: start ngrok, then update BACKEND_INTERNAL_URL in .env');
+      this.logger.warn('[Preflight]    Configure Supabase Storage so media is served from permanent HTTPS URLs.');
     } else {
       this.logger.log(`[Preflight] ✅ Public URL: ${backendUrl}`);
+    }
+
+    const storageStatus = this.storage.getStatus();
+    if (!storageStatus.publishSafe || !storageStatus.configured) {
+      this.logger.warn(`[Preflight] Publish-safe cloud storage is not ready: ${JSON.stringify(storageStatus)}`);
+      this.logger.warn('[Preflight] Instagram/Facebook publishing requires Supabase, S3, or Cloudflare R2 public CDN URLs.');
+    } else {
+      this.logger.log(`[Preflight] Cloud storage ready: ${JSON.stringify(storageStatus)}`);
     }
 
     // 3. Upload directory
@@ -134,10 +156,8 @@ export class PostSchedulerService {
 
     // 5. Stale claimed posts (from previous crash)
     try {
-      const stale = await this.prisma.post.count({
-        where: { state: 'QUEUE', error: '__CLAIMED__' },
-      });
-      if (stale > 0) {
+      const stale = await this.postService.releaseStuckProcessing();
+      if (stale.count > 0) {
         this.logger.warn(`[Preflight] ⚠️  Found ${stale} stale claimed posts — clearing`);
         await this.prisma.post.updateMany({
           where: { state: 'QUEUE', error: '__CLAIMED__' },
@@ -151,27 +171,31 @@ export class PostSchedulerService {
 
   @Cron('* * * * *') // every minute
   async processQueue() {
-    const duePosts = await this.postService.getDuePosts();
+    await this.postService.releaseStuckProcessing();
+    const duePosts: any[] = await this.postService.getDuePosts(this.workerId);
     if (duePosts.length === 0) return;
 
     this.logger.log(`[Scheduler] Processing ${duePosts.length} scheduled posts`);
 
     for (const post of duePosts) {
       // Prevent duplicate publish if previous run is still in progress
-      if (this.inProgress.has(post.id)) {
+      if (false) {
         this.logger.warn(`[Scheduler] Post ${post.id} already in progress — skipping`);
         continue;
       }
 
-      this.inProgress.add(post.id);
+      // DB claimToken/PROCESSING state provides cross-instance locking.
       const startMs = Date.now();
 
       try {
         // Clear the claim sentinel and reset error before publishing
-        await this.prisma.post.update({
-          where: { id: post.id },
-          data: { error: null },
-        });
+        await this.prisma.$executeRawUnsafe(`
+          UPDATE "Post"
+          SET error = NULL,
+              "lockedAt" = NOW(),
+              "lockedBy" = $2
+          WHERE id = $1
+        `, post.id, this.workerId);
 
         await this.publishPost(post);
 
@@ -214,8 +238,6 @@ export class PostSchedulerService {
           type: 'error',
           link: '/dashboard/calendar',
         });
-      } finally {
-        this.inProgress.delete(post.id);
       }
     }
   }
@@ -250,8 +272,12 @@ export class PostSchedulerService {
     if (backendUrl.includes('localhost') && mediaUrls.length > 0 && platform !== 'YOUTUBE') {
       this.logger.warn(
         `[Publish] ⚠️  BACKEND_INTERNAL_URL is localhost — Meta APIs cannot fetch media. ` +
-        `Start ngrok and update BACKEND_INTERNAL_URL in .env`,
+        `Configure Supabase Storage so media is served from permanent HTTPS URLs.`,
       );
+    }
+
+    if ((platform === 'INSTAGRAM' || platform === 'FACEBOOK') && publicMediaUrls.length > 0) {
+      await this.validatePublicMediaUrls(platform, publicMediaUrls, mediaUrls);
     }
 
     // Step 6: Dispatch to platform
@@ -295,14 +321,173 @@ export class PostSchedulerService {
     if (!url) return url;
 
     // Already absolute public URL
-    if (url.startsWith('https://') && !url.includes('localhost')) return url;
+    if ((url.startsWith('https://') || url.startsWith('http://')) && !this.isPrivateOrLocalUrl(url)) return url;
 
-    // Extract filename from any URL or path
+    return this.resolveBackendUploadUrl(url);
+  }
+
+  private async validatePublicMediaUrls(platform: string, publicUrls: string[], rawUrls: string[]) {
+    for (let i = 0; i < publicUrls.length; i++) {
+      const url = publicUrls[i];
+      const rawUrl = rawUrls[i];
+      const isVideo = await this.isVideoMedia(rawUrl);
+      let result = await this.mediaUrlValidator.validate(url, isVideo ? 'video' : 'image');
+      const canRegenerate = Boolean(rawUrl?.startsWith('/uploads/') || rawUrl?.includes('localhost') || rawUrl?.includes('/uploads/'));
+      const regeneratedUrl = canRegenerate ? this.resolveBackendUploadUrl(rawUrl || url) : url;
+
+      if (!result.ok && regeneratedUrl !== url) {
+        this.logger.warn(`[MediaPreflight] Retrying with regenerated public URL: ${regeneratedUrl}`);
+        const retryResult = await this.mediaUrlValidator.validate(regeneratedUrl, isVideo ? 'video' : 'image');
+        this.logger.log(
+          `[MediaPreflight] retry url="${regeneratedUrl}" ok=${retryResult.ok} ` +
+          `method=${retryResult.method || '-'} status=${retryResult.status || '-'} ` +
+          `mime="${retryResult.contentType || '-'}" length=${retryResult.contentLength ?? '-'} ` +
+          `reason="${retryResult.reason || '-'}"`,
+        );
+        if (retryResult.ok) {
+          publicUrls[i] = regeneratedUrl;
+          result = retryResult;
+        }
+      }
+
+      this.logger.log(
+        `[MediaPreflight] ${platform} url="${publicUrls[i]}" raw="${rawUrl}" ` +
+        `ok=${result.ok} method=${result.method || '-'} status=${result.status || '-'} ` +
+        `mime="${result.contentType || '-'}" length=${result.contentLength ?? '-'} ` +
+        `reason="${result.reason || '-'}"`,
+      );
+
+      if (!result.ok) {
+        throw new Error(
+          `${platform} cannot access your media file publicly. ` +
+          `Final URL: ${publicUrls[i]}. ` +
+          `Accessibility test: ${result.reason || 'failed'}. ` +
+          `Configure a public HTTPS upload URL, such as your Railway app URL, before publishing.`,
+        );
+      }
+    }
+  }
+
+  private resolveBackendUploadUrl(url: string): string {
     const filename = path.basename(url.split('?')[0]);
+    const backendUrl =
+      process.env.LOCAL_UPLOAD_PUBLIC_BASE_URL ||
+      process.env.PUBLIC_UPLOAD_BASE_URL ||
+      process.env.BACKEND_PUBLIC_URL ||
+      process.env.BACKEND_INTERNAL_URL ||
+      process.env.NEXT_PUBLIC_BACKEND_URL ||
+      'http://localhost:3000';
+    return `${backendUrl.replace(/\/+$/, '')}/uploads/${filename}`;
+  }
 
-    // Use BACKEND_INTERNAL_URL (ngrok tunnel) for public access
-    const backendUrl = process.env.BACKEND_INTERNAL_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000';
-    return `${backendUrl}/uploads/${filename}`;
+  private async preflightPublicMediaUrl(url: string, isVideo: boolean): Promise<MediaPreflightResult> {
+    if (!url) return { url, ok: false, reason: 'Missing media URL' };
+
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return { url, ok: false, reason: 'Media URL is not absolute' };
+    }
+
+    if (parsed.protocol !== 'https:' && process.env.ALLOW_HTTP_MEDIA_URLS !== 'true') {
+      return { url, ok: false, reason: 'Media URL must use HTTPS' };
+    }
+
+    if (this.isPrivateOrLocalUrl(url)) {
+      return { url, ok: false, reason: `Media URL host is private/local (${parsed.hostname})` };
+    }
+
+    const headers = {
+      'User-Agent': 'SocialPilotPro-MediaPreflight/1.0',
+      'ngrok-skip-browser-warning': 'true',
+      Accept: isVideo ? 'video/*,*/*' : 'image/*,*/*',
+    };
+
+    try {
+      const head = await axios.head(url, {
+        timeout: TIMEOUTS.MEDIA_PREFLIGHT,
+        maxRedirects: 5,
+        validateStatus: () => true,
+        headers,
+      });
+      const result = this.evaluateMediaProbe(url, 'HEAD', head.status, head.headers, isVideo);
+      if (result.ok || !this.shouldRetryWithGet(head.status)) return result;
+    } catch (err: any) {
+      this.logger.warn(`[MediaPreflight] HEAD failed for ${url}: ${err.code || err.message}`);
+    }
+
+    try {
+      const get = await axios.get(url, {
+        timeout: TIMEOUTS.MEDIA_PREFLIGHT,
+        maxRedirects: 5,
+        responseType: 'stream',
+        validateStatus: () => true,
+        headers: { ...headers, Range: 'bytes=0-1023' },
+      });
+      if (get.data?.destroy) get.data.destroy();
+      return this.evaluateMediaProbe(url, 'GET', get.status, get.headers, isVideo);
+    } catch (err: any) {
+      return { url, ok: false, reason: `Public reachability request failed: ${err.code || err.message}` };
+    }
+  }
+
+  private evaluateMediaProbe(
+    url: string,
+    method: 'HEAD' | 'GET',
+    status: number,
+    headers: any,
+    isVideo: boolean,
+  ): MediaPreflightResult {
+    const contentType = String(headers?.['content-type'] || '').split(';')[0].trim().toLowerCase();
+    const rawLength = headers?.['content-length'];
+    const contentLength = rawLength !== undefined ? Number(rawLength) : undefined;
+
+    if (status < 200 || status >= 400) {
+      return { url, ok: false, method, status, contentType, contentLength, reason: `HTTP ${status}` };
+    }
+
+    if (contentLength !== undefined && Number.isFinite(contentLength) && contentLength <= 0) {
+      return { url, ok: false, method, status, contentType, contentLength, reason: 'Content-Length is zero' };
+    }
+
+    const validType = isVideo
+      ? contentType.startsWith('video/') || contentType === 'application/octet-stream'
+      : contentType.startsWith('image/') || contentType === 'application/octet-stream';
+
+    if (!validType) {
+      return {
+        url,
+        ok: false,
+        method,
+        status,
+        contentType,
+        contentLength,
+        reason: `Unexpected content-type "${contentType || 'missing'}" for ${isVideo ? 'video' : 'image'} media`,
+      };
+    }
+
+    return { url, ok: true, method, status, contentType, contentLength };
+  }
+
+  private shouldRetryWithGet(status?: number): boolean {
+    return !status || status === 403 || status === 405 || status === 406 || status >= 500;
+  }
+
+  private isPrivateOrLocalUrl(url: string): boolean {
+    try {
+      const hostname = new URL(url).hostname.toLowerCase();
+      if (hostname === 'localhost' || hostname === '0.0.0.0' || hostname === '::1' || hostname.endsWith('.local')) return true;
+      if (/^127\./.test(hostname) || /^10\./.test(hostname) || /^192\.168\./.test(hostname)) return true;
+      const match172 = hostname.match(/^172\.(\d+)\./);
+      if (match172) {
+        const second = Number(match172[1]);
+        if (second >= 16 && second <= 31) return true;
+      }
+      return false;
+    } catch {
+      return true;
+    }
   }
 
   // ── Validate media file exists locally ───────────────────
@@ -687,7 +872,7 @@ export class PostSchedulerService {
         throw new Error(
           `YouTube upload requires a publicly accessible video file. ` +
           `The file "${path.basename(videoUrl)}" is only available on localhost. ` +
-          `Ensure BACKEND_INTERNAL_URL is set to your ngrok tunnel URL.`,
+          `Ensure cloud storage is configured and the video has a permanent HTTPS URL.`,
         );
       }
       this.logger.log(`[YouTube] Downloading video from public URL: ${publicUrl}`);
@@ -801,7 +986,7 @@ export class PostSchedulerService {
       }
       // Code 100 = invalid parameter
       if (code === 100) {
-        return `${platform} invalid parameter (code 100): ${base}. Check media URL is publicly accessible.`;
+        return `${platform} invalid parameter (code 100): ${base}. Instagram cannot access your media file publicly. Check that the final media URL is HTTPS, publicly reachable, downloadable, and CDN-hosted.`;
       }
       // Code 368 = temporarily blocked
       if (code === 368) {

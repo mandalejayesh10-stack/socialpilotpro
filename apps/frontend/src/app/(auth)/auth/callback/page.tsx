@@ -8,8 +8,7 @@ import { Zap } from 'lucide-react';
 
 /**
  * Handles OAuth callbacks (Google login).
- * Stores the JWT token from the URL query param into localStorage,
- * then fetches the user profile and redirects to dashboard.
+ * The backend sets the secure httpOnly session cookie and redirects here.
  */
 export default function AuthCallbackPage() {
   const router = useRouter();
@@ -17,15 +16,12 @@ export default function AuthCallbackPage() {
   const { setUser, setOrganizations } = useAppStore();
 
   useEffect(() => {
-    const token = searchParams.get('token');
+    const ok = searchParams.get('login') === 'success';
 
-    if (!token) {
-      router.push('/login?error=No+token+received');
+    if (!ok) {
+      router.push('/login?error=Authentication+failed');
       return;
     }
-
-    // Store token for all future API requests
-    localStorage.setItem('auth_token', token);
 
     // Clear any stale org from previous session
     // The setOrganizations call will pick the correct org for this user

@@ -9,7 +9,7 @@ const BASE = process.env.NEXT_PUBLIC_BACKEND_URL
 
 /**
  * Resolve a media URL returned by the backend.
- * The backend now stores relative paths (/uploads/...) to avoid ngrok URL rot.
+ * The backend stores local preview paths in development and CDN URLs in production.
  * This function prepends the backend base URL so the browser can load the asset.
  */
 export function resolveMediaUrl(url: string | null | undefined): string {
@@ -86,9 +86,9 @@ export const authApi = {
 export const orgApi = {
   list: () => request<any[]>('/organizations'),
   create: (data: { name: string; timezone?: string; logoUrl?: string; brandColor?: string }) =>
-    request('/organizations', { method: 'POST', body: JSON.stringify(data) }),
+    request<any>('/organizations', { method: 'POST', body: JSON.stringify(data) }),
   update: (orgId: string, data: any) =>
-    request(`/organizations/${orgId}`, { method: 'PATCH', body: JSON.stringify(data), orgId }),
+    request<any>(`/organizations/${orgId}`, { method: 'PATCH', body: JSON.stringify(data), orgId }),
   getMembers: (orgId: string) =>
     request(`/organizations/${orgId}/members`, { orgId }),
   invite: (orgId: string, email: string, role: string) =>
@@ -140,6 +140,8 @@ export const analyticsApi = {
     request<any[]>(`/analytics/${platform}/content-types?period=${period}`, { orgId }),
   hashtags: (orgId: string, platform: string, period = '30d') =>
     request<any[]>(`/analytics/${platform}/hashtags?period=${period}`, { orgId }),
+  demographics: (orgId: string, platform: string, period = '30d') =>
+    request<any>(`/analytics/${platform}/demographics?period=${period}`, { orgId }),
   // Best times to post
   bestTimes: (orgId: string, platform: string, timezone?: string) => {
     const tz = timezone ? `&timezone=${encodeURIComponent(timezone)}` : '';
@@ -152,6 +154,8 @@ export const analyticsApi = {
   // Force sync — fetches real data from APIs immediately
   forceSync: (orgId: string) =>
     request<any>('/analytics/sync', { method: 'POST', orgId }),
+  syncStatus: (orgId: string) =>
+    request<any>('/analytics/sync-status', { orgId }),
   // YouTube specific
   youtubeVideos: (orgId: string, params?: { search?: string; page?: number; limit?: number }) => {
     const q = new URLSearchParams(
@@ -189,7 +193,7 @@ export const mediaApi = {
     const form = new FormData();
     form.append('file', file);
     const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null;
-    // Use /api proxy (same origin) — avoids CORS and ngrok issues
+    // Use /api proxy (same origin) to avoid CORS issues.
     const res = await fetch('/api/media/upload', {
       method: 'POST',
       credentials: 'include',

@@ -53,7 +53,7 @@ interface AppStore {
 
   // Actions
   setUser: (user: User | null) => void;
-  setCurrentOrg: (org: Organization) => void;
+  setCurrentOrg: (org: Organization | string) => void;
   setOrganizations: (orgs: Organization[]) => void;
   updateOrg: (orgId: string, data: Partial<Organization>) => void;
   setSidebarCollapsed: (v: boolean) => void;
@@ -61,6 +61,9 @@ interface AppStore {
 
   // Computed
   currentPlan: () => 'FREE' | 'PRO' | 'AGENCY';
+  currentOrgId: () => string;
+  getCurrentOrg: () => Organization | null;
+  getCurrentTier: () => 'FREE' | 'PRO' | 'AGENCY';
   isAdmin: () => boolean;
   canUseFeature: (feature: 'reports' | 'ai' | 'media' | 'api' | 'bulk') => boolean;
 }
@@ -83,7 +86,14 @@ export const useAppStore = create<AppStore>()(
         }
       },
 
-      setCurrentOrg: (org) => set({ currentOrg: org }),
+      setCurrentOrg: (org) => {
+        if (typeof org === 'string') {
+          const found = get().organizations.find((item) => item.id === org) || null;
+          set({ currentOrg: found });
+          return;
+        }
+        set({ currentOrg: org });
+      },
 
       setOrganizations: (orgs) => {
         set({ organizations: orgs });
@@ -126,6 +136,12 @@ export const useAppStore = create<AppStore>()(
         const tier = get().currentOrg?.subscription?.tier;
         return tier || 'FREE';
       },
+
+      currentOrgId: () => get().currentOrg?.id || '',
+
+      getCurrentOrg: () => get().currentOrg,
+
+      getCurrentTier: () => get().currentPlan(),
 
       isAdmin: () => {
         const org = get().currentOrg;

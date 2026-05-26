@@ -1,17 +1,20 @@
 'use client';
 
 import { useState } from 'react';
-import { usePlatformAnalytics, useTopPosts, useContentTypes, useHashtags, useOrgId } from '@/lib/hooks';
+import { useAnalyticsSyncStatus, usePlatformAnalytics, useTopPosts, useContentTypes, useHashtags, useDemographics, useOrgId, invalidateAnalytics } from '@/lib/hooks';
 import { MetricCard } from '@/components/ui/metric-card';
 import { ChartCard } from '@/components/ui/chart-card';
 import { PeriodSelector, Period } from '@/components/ui/period-selector';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
 import { SkeletonCard, SkeletonChart } from '@/components/ui/skeleton';
-import { aiApi, resolveMediaUrl } from '@/lib/api';
+import { aiApi, analyticsApi, resolveMediaUrl } from '@/lib/api';
+import { Button } from '@/components/ui/button';
+import { DemographicsPanel } from '@/components/analytics/demographics-panel';
 import {
   Users, Heart, Eye, TrendingUp, Clock, Hash,
   Image, Video, FileText, Sparkles, ExternalLink,
+  RefreshCw, AlertCircle, CheckCircle2,
 } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -25,12 +28,15 @@ export function PlatformPage({ platform, color, icon }: PlatformPageProps) {
   const [period, setPeriod] = useState<Period>('30d');
   const [aiInsights, setAiInsights] = useState('');
   const [loadingInsights, setLoadingInsights] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const orgId = useOrgId();
 
   const { data, isLoading } = usePlatformAnalytics(platform, period);
   const { data: topPosts = [], isLoading: loadingPosts } = useTopPosts(platform, period);
   const { data: contentTypes = [] } = useContentTypes(platform, period);
   const { data: hashtags = [] } = useHashtags(platform, period);
+  const { data: demographics, isLoading: loadingDemographics } = useDemographics(platform, period);
+  const { data: syncStatus } = useAnalyticsSyncStatus();
 
   const summary = data?.summary;
   const isYoutube = platform === 'YOUTUBE';
@@ -41,6 +47,21 @@ export function PlatformPage({ platform, color, icon }: PlatformPageProps) {
   const sp = (v: any) => Array.isArray(v) ? v : (typeof v === 'string' ? (() => { try { return JSON.parse(v || '[]'); } catch { return []; } })() : []);
 
   const DAYS_MAP: Record<number, string> = { 0: 'Mon', 1: 'Tue', 2: 'Wed', 3: 'Thu', 4: 'Fri', 5: 'Sat', 6: 'Sun' };
+  const platformSync = (syncStatus?.platforms || []).filter((item: any) => item.platform === platform);
+  const latestSync = platformSync
+    .map((item: any) => item.lastSyncedAt ? new Date(item.lastSyncedAt).getTime() : 0)
+    .sort((a: number, b: number) => b - a)[0];
+
+  const handleSync = async () => {
+    if (!orgId) return;
+    setSyncing(true);
+    try {
+      await analyticsApi.forceSync(orgId);
+      invalidateAnalytics(orgId);
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const handleGetInsights = async () => {
     setLoadingInsights(true);
@@ -78,8 +99,21 @@ export function PlatformPage({ platform, color, icon }: PlatformPageProps) {
             <p className="text-sm text-text-muted">Analytics overview</p>
           </div>
         </div>
-        <PeriodSelector value={period} onChange={setPeriod} />
+        <div className="flex items-center gap-3">
+          <PeriodSelector value={period} onChange={setPeriod} />
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={<RefreshCw size={13} className={syncing ? 'animate-spin' : ''} />}
+            loading={syncing}
+            onClick={handleSync}
+          >
+            Sync
+          </Button>
+        </div>
       </div>
+
+      <SyncStatusStrip items={platformSync} latestSync={latestSync} />
 
       {/* Metric cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -155,6 +189,8 @@ export function PlatformPage({ platform, color, icon }: PlatformPageProps) {
           height={200}
         />
       )}
+
+      <DemographicsPanel data={demographics} loading={loadingDemographics} />
 
       {/* Best posting time + content type */}
       <div className="grid grid-cols-2 gap-4">
@@ -321,6 +357,8 @@ function TopPostRow({ post, rank }: { post: any; rank: number }) {
           <span>❤️ {(post.metrics?.likes || 0).toLocaleString()}</span>
           <span>💬 {(post.metrics?.comments || 0).toLocaleString()}</span>
           <span>🔁 {(post.metrics?.shares || 0).toLocaleString()}</span>
+          <span>Saved {(post.metrics?.saves || 0).toLocaleString()}</span>
+          <span>Views {(post.metrics?.views || 0).toLocaleString()}</span>
           <span>👁️ {(post.metrics?.reach || 0).toLocaleString()}</span>
           <span className="text-brand-400 font-medium">{(post.metrics?.engagementRate || 0).toFixed(2)}%</span>
         </div>
@@ -336,6 +374,52 @@ function TopPostRow({ post, rank }: { post: any; rank: number }) {
         >
           <ExternalLink size={14} />
         </a>
+      )}
+    </div>
+  );
+}
+
+function SyncStatusStrip({ items, latestSync }: { items: any[]; latestSync?: number }) {
+  const hasFailure = items.some((item) => ['failed', 'auth_required'].includes(item.status));
+  const hasStale = items.some((item) => item.status === 'stale');
+  const icon = hasFailure
+    ? <AlertCircle size={14} className="text-error" />
+    : hasStale
+      ? <AlertCircle size={14} className="text-amber-400" />
+      : <CheckCircle2 size={14} className="text-emerald-400" />;
+  const label = hasFailure ? 'Needs attention' : hasStale ? 'Data stale' : 'Live API data';
+  const last = latestSync ? new Date(latestSync).toLocaleString() : 'Never';
+
+  return (
+    <div className="bg-surface-card border border-surface-border rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3">
+      <div className="flex items-center gap-2">
+        {icon}
+        <div>
+          <p className="text-sm font-medium text-text-primary">{label}</p>
+          <p className="text-xs text-text-muted">Last synced: {last}</p>
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {items.length === 0 ? (
+          <Badge variant="default">No connected account</Badge>
+        ) : items.map((item) => (
+          <Badge key={item.integrationId} variant={item.status === 'healthy' ? 'success' : item.status === 'failed' || item.status === 'auth_required' ? 'error' : 'warning'}>
+            {item.name}: {String(item.status).replace('_', ' ')}
+          </Badge>
+        ))}
+      </div>
+      {items.some((item) => item.validation?.checks?.length) && (
+        <div className="w-full grid grid-cols-1 md:grid-cols-2 gap-2 pt-3 border-t border-surface-border">
+          {items.flatMap((item) => (item.validation?.checks || []).map((check: any) => (
+            <div key={`${item.integrationId}-${check.key}`} className="flex items-start gap-2 text-xs">
+              {check.ok ? <CheckCircle2 size={13} className="text-emerald-400 mt-0.5" /> : <AlertCircle size={13} className="text-amber-400 mt-0.5" />}
+              <div>
+                <p className="text-text-secondary">{item.name}: {check.label}</p>
+                {!check.ok && check.message && <p className="text-text-muted mt-0.5">{check.message}</p>}
+              </div>
+            </div>
+          )))}
+        </div>
       )}
     </div>
   );

@@ -7,13 +7,15 @@ import { PostService } from './post.service';
 import { CreatePostDto, BulkScheduleDto, UpdatePostDto } from './dto/create-post.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { OrgMemberGuard } from '../../common/guards/org-member.guard';
+import { PermissionsGuard } from '../../common/guards/permissions.guard';
+import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { CurrentOrg } from '../../common/decorators/current-user.decorator';
 import { State } from '@prisma/client';
 
 @ApiTags('Posts')
 @ApiBearerAuth()
 @Controller('posts')
-@UseGuards(JwtAuthGuard, OrgMemberGuard)
+@UseGuards(JwtAuthGuard, OrgMemberGuard, PermissionsGuard)
 export class PostController {
   constructor(private postService: PostService) {}
 
@@ -39,6 +41,7 @@ export class PostController {
   }
 
   @Post()
+  @RequirePermissions('scheduling:write')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create and schedule a post' })
   async create(@CurrentOrg() org: any, @Body() dto: CreatePostDto) {
@@ -49,6 +52,7 @@ export class PostController {
   }
 
   @Post('bulk')
+  @RequirePermissions('scheduling:write')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Bulk schedule multiple posts' })
   async bulkSchedule(@CurrentOrg() org: any, @Body() body: BulkScheduleDto) {
@@ -65,6 +69,7 @@ export class PostController {
   }
 
   @Patch(':id')
+  @RequirePermissions('scheduling:write')
   @ApiOperation({ summary: 'Update a scheduled post' })
   async update(
     @CurrentOrg() org: any,
@@ -78,6 +83,7 @@ export class PostController {
   }
 
   @Delete(':id')
+  @RequirePermissions('delete:write')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Delete a post' })
   async delete(@CurrentOrg() org: any, @Param('id') id: string) {

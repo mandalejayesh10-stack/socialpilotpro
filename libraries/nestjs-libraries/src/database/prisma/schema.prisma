@@ -20,6 +20,7 @@ enum Provider {
 
 enum Role {
   SUPERADMIN
+  OWNER
   ADMIN
   EDITOR
   VIEWER
@@ -30,6 +31,9 @@ enum State {
   QUEUE
   PUBLISHED
   ERROR
+  PROCESSING
+  RETRY_EXHAUSTED
+  VALIDATION_FAILED
   DRAFT
 }
 
@@ -170,6 +174,7 @@ model User {
   tasks                 Task[]             @relation("assignedTasks")
   createdTasks          Task[]             @relation("createdTasks")
   oauthAuthorizations   OAuthAuthorization[]
+  oauthStates           OAuthState[]
 
   @@unique([email, providerName])
   @@index([email])
@@ -198,6 +203,7 @@ model Organization {
   integrations       Integration[]
   posts              Post[]
   media              Media[]
+  uploadJobs         UploadJob[]
   subscription       Subscription?
   payments           Payment[]
   invoices           Invoice[]
@@ -206,6 +212,12 @@ model Organization {
   postMetrics        PostMetrics[]
   accountMetrics     AccountMetrics[]
   analyticsSummary   AnalyticsSummary[]
+  analyticsSnapshots AnalyticsSnapshot[]
+  audienceDemographics AudienceDemographics[]
+  postAnalytics      PostAnalytics[]
+  reelAnalytics      ReelAnalytics[]
+  videoAnalytics     VideoAnalytics[]
+  syncLogs           SyncLog[]
   jobs               Job[]
   reports            Report[]
   notifications      Notification[]
@@ -218,6 +230,7 @@ model Organization {
   couponsUsed        CouponUsage[]
   addOns             AddOn[]
   inboxConversations InboxConversation[]
+  oauthStates        OAuthState[]
 
   @@index([apiKey])
   @@index([paymentId])
@@ -269,6 +282,12 @@ model Integration {
   accountMetrics     AccountMetrics[]
   postMetrics        PostMetrics[]
   analyticsRaw       AnalyticsRaw[]
+  analyticsSnapshots AnalyticsSnapshot[]
+  audienceDemographics AudienceDemographics[]
+  postAnalytics      PostAnalytics[]
+  reelAnalytics      ReelAnalytics[]
+  videoAnalytics     VideoAnalytics[]
+  syncLogs           SyncLog[]
 
   @@unique([organizationId, platform, internalId])
   @@index([organizationId])
@@ -297,6 +316,11 @@ model Post {
   error          String?
   publishedUrl   String?
   externalId     String?   // ID returned by platform after publish
+  claimToken     String?
+  lockedAt       DateTime?
+  lockedBy       String?
+  retryCount     Int       @default(0)
+  terminalReason String?
   intervalInDays Int?      // for recurring posts
   parentPostId   String?
   createdAt      DateTime  @default(now())
@@ -316,9 +340,32 @@ model Post {
   @@index([integrationId])
   @@index([publishDate])
   @@index([state])
+  @@index([state, publishDate, deletedAt])
+  @@index([claimToken])
+  @@index([lockedAt])
   @@index([group])
   @@index([deletedAt])
   @@index([parentPostId])
+}
+
+model OAuthState {
+  id             String    @id @default(uuid())
+  nonce          String    @unique
+  platform       String
+  userId         String
+  organizationId String
+  signature      String
+  expiresAt      DateTime
+  consumedAt     DateTime?
+  createdAt      DateTime  @default(now())
+
+  user           User         @relation(fields: [userId], references: [id])
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([userId])
+  @@index([organizationId])
+  @@index([platform])
+  @@index([expiresAt])
 }
 
 model Tag {
@@ -374,6 +421,7 @@ model Media {
   originalName   String?
   path           String
   url            String?
+  originalUrl    String?
   type           MediaType @default(IMAGE)
   mimeType       String?
   fileSize       Int       @default(0)
@@ -381,6 +429,14 @@ model Media {
   height         Int?
   duration       Float?    // seconds, for video/audio
   thumbnail      String?
+  thumbnailUrl   String?
+  storageProvider String?
+  aspectRatio    String?
+  isPortrait     Boolean   @default(false)
+  isShortForm    Boolean   @default(false)
+  processingStatus String   @default("READY_TO_PUBLISH")
+  publishReady    Boolean   @default(false)
+  validationError String?
   alt            String?
   processed      Boolean   @default(false)
   processingMeta String?   // JSON: ffmpeg options used
@@ -392,7 +448,29 @@ model Media {
 
   @@index([organizationId])
   @@index([type])
+  @@index([storageProvider])
   @@index([deletedAt])
+}
+
+model UploadJob {
+  id             String   @id @default(uuid())
+  organizationId String
+  mediaId        String?
+  provider       String
+  status         String   @default("PENDING")
+  sourcePath     String?
+  publicUrl      String?
+  thumbnailUrl   String?
+  error          String?
+  attempts       Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId])
+  @@index([mediaId])
+  @@index([status])
 }
 
 // ─────────────────────────────────────────────
@@ -525,6 +603,197 @@ model AnalyticsSummary {
   @@index([organizationId])
   @@index([platform])
   @@index([computedAt])
+}
+
+model AnalyticsSnapshot {
+  id             String   @id @default(uuid())
+  organizationId String
+  integrationId  String?
+  platform       Platform?
+  snapshotType   String
+  periodStart    DateTime?
+  periodEnd      DateTime?
+  data           String
+  createdAt      DateTime @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  integration    Integration? @relation(fields: [integrationId], references: [id])
+
+  @@index([organizationId])
+  @@index([integrationId])
+  @@index([platform])
+  @@index([snapshotType])
+  @@index([createdAt])
+}
+
+model AudienceDemographics {
+  id             String   @id @default(uuid())
+  organizationId String
+  integrationId  String
+  platform       Platform
+  periodDate     DateTime @db.Date
+  country        String   @default("{}")
+  city           String   @default("{}")
+  age            String   @default("{}")
+  gender         String   @default("{}")
+  language       String   @default("{}")
+  activeHours    String   @default("{}")
+  returningVsNew String   @default("{}")
+  source         String   @default("api")
+  syncedAt       DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  integration    Integration  @relation(fields: [integrationId], references: [id])
+
+  @@unique([integrationId, periodDate])
+  @@index([organizationId])
+  @@index([integrationId])
+  @@index([platform])
+  @@index([periodDate])
+}
+
+model PostAnalytics {
+  id             String   @id @default(uuid())
+  organizationId String
+  integrationId  String
+  platform       Platform
+  externalId     String
+  postId         String?
+  mediaType      String?
+  caption        String?
+  permalink      String?
+  thumbnailUrl   String?
+  publishedAt    DateTime?
+  periodDate     DateTime @db.Date
+  views          Int      @default(0)
+  reach          Int      @default(0)
+  impressions    Int      @default(0)
+  likes          Int      @default(0)
+  comments       Int      @default(0)
+  shares         Int      @default(0)
+  saves          Int      @default(0)
+  clicks         Int      @default(0)
+  watchTime      Int      @default(0)
+  retention      Float    @default(0)
+  ctr            Float    @default(0)
+  engagementRate Float    @default(0)
+  viralScore     Float    @default(0)
+  rawData        String   @default("{}")
+  syncedAt       DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  integration    Integration  @relation(fields: [integrationId], references: [id])
+
+  @@unique([integrationId, externalId, periodDate])
+  @@index([organizationId])
+  @@index([integrationId])
+  @@index([platform])
+  @@index([periodDate])
+  @@index([engagementRate])
+}
+
+model ReelAnalytics {
+  id             String   @id @default(uuid())
+  organizationId String
+  integrationId  String
+  platform       Platform
+  externalId     String
+  caption        String?
+  permalink      String?
+  thumbnailUrl   String?
+  publishedAt    DateTime?
+  periodDate     DateTime @db.Date
+  plays          Int      @default(0)
+  reach          Int      @default(0)
+  impressions    Int      @default(0)
+  likes          Int      @default(0)
+  comments       Int      @default(0)
+  shares         Int      @default(0)
+  saves          Int      @default(0)
+  watchTime      Int      @default(0)
+  retention      Float    @default(0)
+  engagementRate Float    @default(0)
+  viralScore     Float    @default(0)
+  rawData        String   @default("{}")
+  syncedAt       DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  integration    Integration  @relation(fields: [integrationId], references: [id])
+
+  @@unique([integrationId, externalId, periodDate])
+  @@index([organizationId])
+  @@index([integrationId])
+  @@index([platform])
+  @@index([periodDate])
+}
+
+model VideoAnalytics {
+  id             String   @id @default(uuid())
+  organizationId String
+  integrationId  String
+  platform       Platform @default(YOUTUBE)
+  externalId     String
+  title          String?
+  thumbnailUrl   String?
+  publishedAt    DateTime?
+  isShort        Boolean  @default(false)
+  periodDate     DateTime @db.Date
+  views          Int      @default(0)
+  watchTime      Int      @default(0)
+  averageViewDuration Float @default(0)
+  retention      Float    @default(0)
+  likes          Int      @default(0)
+  comments       Int      @default(0)
+  shares         Int      @default(0)
+  subscribersGained Int   @default(0)
+  impressions    Int      @default(0)
+  ctr            Float    @default(0)
+  engagementRate Float    @default(0)
+  viralScore     Float    @default(0)
+  rawData        String   @default("{}")
+  syncedAt       DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  integration    Integration  @relation(fields: [integrationId], references: [id])
+
+  @@unique([integrationId, externalId, periodDate])
+  @@index([organizationId])
+  @@index([integrationId])
+  @@index([periodDate])
+  @@index([isShort])
+}
+
+model SyncLog {
+  id             String   @id @default(uuid())
+  organizationId String
+  integrationId  String?
+  platform       Platform?
+  syncType       String
+  status         String
+  startedAt      DateTime @default(now())
+  finishedAt     DateTime?
+  itemsSynced    Int      @default(0)
+  error          String?
+  apiResponse    String?
+  createdAt      DateTime @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  integration    Integration? @relation(fields: [integrationId], references: [id])
+
+  @@index([organizationId])
+  @@index([integrationId])
+  @@index([platform])
+  @@index([syncType])
+  @@index([status])
+  @@index([startedAt])
 }
 
 // ─────────────────────────────────────────────
@@ -875,6 +1144,7 @@ enum PublishLogStatus {
   SUCCESS
   FAILED
   RETRYING
+  DEAD_LETTERED
 }
 
 model PublishLog {
@@ -978,7 +1248,7 @@ model InboxMessage {
   replies           InboxMessage[]    @relation("replies")
 
   @@index([conversationId])
+  @@unique([conversationId, platformMessageId])
   @@index([senderType])
   @@index([createdAt])
-  @@index([platformMessageId])
 }

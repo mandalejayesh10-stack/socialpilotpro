@@ -32,6 +32,31 @@ const TYPE_COLORS: Record<string, string> = {
 
 type FilterType = "ALL" | "IMAGE" | "VIDEO" | "AUDIO" | "PROCESSED_VIDEO";
 
+function mediaStatusLabel(item: any) {
+  const status = item.processingStatus;
+  const friendlyError = String(item.validationError || "").includes("Supabase Storage configuration")
+    ? "Preparing public upload..."
+    : item.validationError;
+  const map: Record<string, string> = {
+    UPLOADING: "Uploading...",
+    PROCESSING: "Checking media...",
+    OPTIMIZING: "Optimizing video for Reel/Short...",
+    GENERATING_THUMBNAIL: "Generating thumbnail...",
+    UPLOADING_TO_CLOUD: "Preparing public upload...",
+    READY_TO_PUBLISH: "Ready to publish",
+    PUBLISHING: "Publishing...",
+    PUBLISHED: "Published",
+    VALIDATION_FAILED: friendlyError || "Needs attention before publishing",
+  };
+  return map[status] || friendlyError || null;
+}
+
+function mediaStatusStyle(status?: string) {
+  if (status === "READY_TO_PUBLISH" || status === "PUBLISHED") return "text-green-300 bg-green-500/10 border-green-500/20";
+  if (status === "VALIDATION_FAILED") return "text-amber-300 bg-amber-500/10 border-amber-500/20";
+  return "text-blue-300 bg-blue-500/10 border-blue-500/20";
+}
+
 export default function MediaPage() {
   const orgId = useOrgId();
   const toast = useToast();
@@ -276,6 +301,7 @@ function MediaCard({ item, onDelete, onProcess, onPreview, onCopyUrl, formatSize
   const typeStyle = TYPE_COLORS[item.type] || "text-text-muted bg-surface-hover";
   const resolvedUrl = resolveMediaUrl(item.url);
   const resolvedThumb = resolveMediaUrl(item.thumbnail);
+  const statusLabel = mediaStatusLabel(item);
 
   return (
     <div className="group relative bg-surface-card border border-surface-border rounded-xl overflow-hidden hover:border-brand-500/30 transition-all hover:shadow-sm">
@@ -319,6 +345,11 @@ function MediaCard({ item, onDelete, onProcess, onPreview, onCopyUrl, formatSize
             <span className="text-xs text-text-muted">{item.duration.toFixed(1)}s</span>
           )}
         </div>
+        {statusLabel && item.processingStatus !== "READY_TO_PUBLISH" && (
+          <div className={clsx("mt-2 rounded-lg border px-2 py-1 text-[11px] leading-snug", mediaStatusStyle(item.processingStatus))}>
+            {statusLabel}
+          </div>
+        )}
       </div>
 
       {/* Actions overlay */}

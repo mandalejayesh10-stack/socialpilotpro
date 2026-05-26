@@ -1,12 +1,13 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useOrgId } from '@/lib/hooks';
+import { useDemographics, useOrgId } from '@/lib/hooks';
 import { analyticsApi } from '@/lib/api';
 import { useToast } from '@/components/ui/toast';
 import { Button } from '@/components/ui/button';
 import { ChartCard } from '@/components/ui/chart-card';
 import { EmptyState } from '@/components/ui/empty-state';
+import { DemographicsPanel } from '@/components/analytics/demographics-panel';
 import clsx from 'clsx';
 import dayjs from 'dayjs';
 import { Facebook, RefreshCw, Download, Users, Eye, TrendingUp, ExternalLink, BarChart3 } from 'lucide-react';
@@ -41,6 +42,7 @@ export default function FacebookAnalyticsPage() {
   const [postTotal, setPostTotal] = useState(0);
   const [postPage, setPostPage] = useState(1);
   const [activeTab, setActiveTab] = useState<'overview' | 'posts'>('overview');
+  const { data: demographics, isLoading: loadingDemographics } = useDemographics('FACEBOOK', '30d');
 
   const loadStats = async () => {
     if (!orgId) return;
@@ -176,6 +178,8 @@ export default function FacebookAnalyticsPage() {
               </div>
             </div>
           )}
+
+          <DemographicsPanel data={demographics} loading={loadingDemographics} />
         </div>
       )}
 
