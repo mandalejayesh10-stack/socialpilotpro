@@ -22,6 +22,7 @@ function AuthCallback() {
     // Clear any stale org from previous session
     // The setOrganizations call will pick the correct org for this user
     localStorage.removeItem('socialpilot-store');
+    localStorage.removeItem('auth_token'); // CRITICAL: Clear old email/password token so it uses the new OAuth cookie
 
     // Fetch user profile with the new token
     authApi.me()
