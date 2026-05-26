@@ -53,7 +53,7 @@ export class GoogleOAuthService implements OnModuleInit {
   }
 
   private getRedirectUri(): string {
-    const base = process.env.BACKEND_INTERNAL_URL || 'http://localhost:3000';
+    const base = process.env.BACKEND_PUBLIC_URL || process.env.BACKEND_INTERNAL_URL || 'http://localhost:3000';
     return `${base}/api/auth/google/callback`;
   }
 

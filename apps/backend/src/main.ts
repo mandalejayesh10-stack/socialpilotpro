@@ -149,7 +149,7 @@ async function bootstrap() {
   //                https://tunnel.ngrok-free.dev/terms
   const expressApp = app.getHttpAdapter().getInstance();
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:4200';
-  const tunnelUrl   = process.env.BACKEND_INTERNAL_URL || 'http://localhost:3000';
+  const tunnelUrl   = process.env.BACKEND_PUBLIC_URL || process.env.BACKEND_INTERNAL_URL || 'http://localhost:3000';
 
   const legalStyle = `body{font-family:system-ui,sans-serif;background:#0f0f1a;color:#e0e0f0;margin:0;padding:0}
     header{background:#16162a;border-bottom:1px solid #2a2a45;padding:16px 32px;display:flex;align-items:center;gap:12px}
