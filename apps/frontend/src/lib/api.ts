@@ -102,9 +102,9 @@ export const integrationApi = {
   list: (orgId: string) => request<any[]>('/integrations', { orgId }),
   disconnect: (orgId: string, id: string) =>
     request(`/integrations/${id}`, { method: 'DELETE', orgId }),
-  // Use relative /api paths so JWT cookie is sent on same origin
-  connectMetaUrl: (orgId: string) => `/api/integrations/meta/connect?x-org-id=${orgId}`,
-  connectYoutubeUrl: (orgId: string) => `/api/integrations/youtube/connect?x-org-id=${orgId}`,
+  // Use BASE so the browser navigates directly to the backend domain.
+  connectMetaUrl: (orgId: string) => `${BASE}/integrations/meta/connect?x-org-id=${orgId}`,
+  connectYoutubeUrl: (orgId: string) => `${BASE}/integrations/youtube/connect?x-org-id=${orgId}`,
 };
 
 // ── Posts ─────────────────────────────────────────────────────
