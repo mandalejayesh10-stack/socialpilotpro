@@ -113,13 +113,19 @@ export default function ConnectionsPage() {
 
   const connectedPlatforms = new Set(integrations.map((i: any) => i.platform));
 
-  // Build connect URL
-  // CRITICAL: We MUST use relative /api paths. If we link directly to the backend URL, 
-  // the browser will drop the Vercel authentication cookie because it's a cross-domain navigation.
-  // Using relative paths forces the request through Next.js rewrite which forwards the cookie.
-  const getConnectUrl = (platform: string) => {
-    if (platform === 'YOUTUBE') return integrationApi.connectYoutubeUrl(orgId);
-    return integrationApi.connectMetaUrl(orgId);
+  const [connecting, setConnecting] = useState<string | null>(null);
+
+  const handleConnect = async (platform: string) => {
+    try {
+      setConnecting(platform);
+      const { url } = platform === 'YOUTUBE' 
+        ? await integrationApi.connectYoutubeUrl(orgId)
+        : await integrationApi.connectMetaUrl(orgId);
+      window.location.href = url;
+    } catch (e: any) {
+      toast.error('Connection failed', e.message);
+      setConnecting(null);
+    }
   };
 
   return (
@@ -233,18 +239,20 @@ export default function ConnectionsPage() {
                 }
 
                 return (
-                  <a
-                    href={getConnectUrl(platform)}
+                  <button
+                    onClick={() => handleConnect(platform)}
+                    disabled={connecting === platform}
                     className={clsx(
                       'flex items-center justify-center gap-2 w-full py-2.5 rounded-xl text-xs font-semibold transition-all',
                       isConnected
                         ? 'bg-surface-hover text-text-secondary hover:text-text-primary border border-surface-border'
                         : `${config.bg} ${config.color} border ${config.border} hover:opacity-80`,
+                      connecting === platform && 'opacity-50 cursor-not-allowed'
                     )}
                   >
                     <Plus size={12} />
-                    {isConnected ? `Add another ${config.label}` : `Connect ${config.label}`}
-                  </a>
+                    {connecting === platform ? 'Connecting...' : isConnected ? `Add another ${config.label}` : `Connect ${config.label}`}
+                  </button>
                 );
               })()}
             </div>
@@ -329,13 +337,17 @@ export default function ConnectionsPage() {
                     {/* Actions */}
                     <div className="flex items-center gap-2 flex-shrink-0">
                       {integration.refreshNeeded && (
-                        <a
-                          href={getConnectUrl(integration.platform)}
-                          className="flex items-center gap-1.5 text-xs text-warning hover:text-amber-300 font-medium transition-colors"
+                        <button
+                          onClick={() => handleConnect(integration.platform)}
+                          disabled={connecting === integration.platform}
+                          className={clsx(
+                            "flex items-center gap-1.5 text-xs text-warning hover:text-amber-300 font-medium transition-colors",
+                            connecting === integration.platform && "opacity-50 cursor-not-allowed"
+                          )}
                         >
                           <RefreshCw size={12} />
-                          Reconnect
-                        </a>
+                          {connecting === integration.platform ? 'Connecting...' : 'Reconnect'}
+                        </button>
                       )}
                       <Button
                         variant="ghost"

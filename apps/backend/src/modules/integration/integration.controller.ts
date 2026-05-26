@@ -65,19 +65,13 @@ export class IntegrationController {
     @CurrentUser() user: any,
     @Query('x-org-id') orgId: string,
     @Query('orgId') orgId2: string,
-    @Res() res: Response,
   ) {
     const organizationId = org?.id || orgId || orgId2;
     if (!this.metaOAuth.isConfigured()) {
-      return res.status(503).send(this.buildConfigErrorPage(
-        'Meta (Facebook + Instagram)',
-        'FACEBOOK_APP_ID and FACEBOOK_APP_SECRET',
-        'SETUP_META.md',
-        process.env.FRONTEND_URL || 'http://localhost:4200',
-      ));
+      throw new Error('Meta (Facebook + Instagram) is not configured.');
     }
     const url = await this.integrationService.getMetaAuthUrl(organizationId, user.id);
-    res.redirect(url);
+    return { url };
   }
 
   @Public()
@@ -111,19 +105,13 @@ export class IntegrationController {
     @CurrentUser() user: any,
     @Query('x-org-id') orgId: string,
     @Query('orgId') orgId2: string,
-    @Res() res: Response,
   ) {
     const organizationId = org?.id || orgId || orgId2;
     if (!this.youtubeOAuth.isConfigured()) {
-      return res.status(503).send(this.buildConfigErrorPage(
-        'YouTube',
-        'YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET',
-        'SETUP_OAUTH.md',
-        process.env.FRONTEND_URL || 'http://localhost:4200',
-      ));
+      throw new Error('YouTube is not configured.');
     }
     const url = await this.integrationService.getYoutubeAuthUrl(organizationId, user.id);
-    res.redirect(url);
+    return { url };
   }
 
   @Public()

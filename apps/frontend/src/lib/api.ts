@@ -102,9 +102,10 @@ export const integrationApi = {
   list: (orgId: string) => request<any[]>('/integrations', { orgId }),
   disconnect: (orgId: string, id: string) =>
     request(`/integrations/${id}`, { method: 'DELETE', orgId }),
-  // Use BASE so the browser navigates directly to the backend domain.
-  connectMetaUrl: (orgId: string) => `${BASE}/integrations/meta/connect?x-org-id=${orgId}`,
-  connectYoutubeUrl: (orgId: string) => `${BASE}/integrations/youtube/connect?x-org-id=${orgId}`,
+  // These now make authenticated fetch requests using the Authorization header,
+  // bypassing cross-domain cookie issues completely.
+  connectMetaUrl: (orgId: string) => request<{ url: string }>('/integrations/meta/connect', { orgId }),
+  connectYoutubeUrl: (orgId: string) => request<{ url: string }>('/integrations/youtube/connect', { orgId }),
 };
 
 // ── Posts ─────────────────────────────────────────────────────
