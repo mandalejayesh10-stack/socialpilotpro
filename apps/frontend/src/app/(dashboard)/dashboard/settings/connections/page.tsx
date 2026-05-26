@@ -113,12 +113,13 @@ export default function ConnectionsPage() {
 
   const connectedPlatforms = new Set(integrations.map((i: any) => i.platform));
 
-  // Build connect URL — endpoints are now @Public() so no JWT cookie needed
-  // Use direct backend URL so the redirect goes straight to backend
+  // Build connect URL
+  // CRITICAL: We MUST use relative /api paths. If we link directly to the backend URL, 
+  // the browser will drop the Vercel authentication cookie because it's a cross-domain navigation.
+  // Using relative paths forces the request through Next.js rewrite which forwards the cookie.
   const getConnectUrl = (platform: string) => {
-    const base = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000';
-    if (platform === 'YOUTUBE') return `${base}/api/integrations/youtube/connect`;
-    return `${base}/api/integrations/meta/connect`;
+    if (platform === 'YOUTUBE') return integrationApi.connectYoutubeUrl(orgId);
+    return integrationApi.connectMetaUrl(orgId);
   };
 
   return (
@@ -233,7 +234,7 @@ export default function ConnectionsPage() {
 
                 return (
                   <a
-                    href={`${getConnectUrl(platform)}?x-org-id=${orgId}`}
+                    href={getConnectUrl(platform)}
                     className={clsx(
                       'flex items-center justify-center gap-2 w-full py-2.5 rounded-xl text-xs font-semibold transition-all',
                       isConnected
@@ -329,7 +330,7 @@ export default function ConnectionsPage() {
                     <div className="flex items-center gap-2 flex-shrink-0">
                       {integration.refreshNeeded && (
                         <a
-                          href={`${getConnectUrl(integration.platform)}?x-org-id=${orgId}`}
+                          href={getConnectUrl(integration.platform)}
                           className="flex items-center gap-1.5 text-xs text-warning hover:text-amber-300 font-medium transition-colors"
                         >
                           <RefreshCw size={12} />
