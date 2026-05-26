@@ -128,8 +128,10 @@ export class AuthService {
     pictureUrl?: string;
     providerId: string;
   }) {
+    // Find ANY existing user with this email to link accounts
     let user = await this.prisma.user.findFirst({
-      where: { email: googleUser.email, providerName: 'GOOGLE' },
+      where: { email: googleUser.email },
+      orderBy: { createdAt: 'asc' }, // Prefer the oldest account (usually the LOCAL one)
     });
 
     if (!user) {
