@@ -17,7 +17,11 @@ export const metadata: Metadata = {
     template: '%s | SocialPilot Pro',
   },
   description: 'Professional social media management platform — schedule, analyze, and grow.',
-  icons: { icon: '/favicon.ico' },
+  icons: {
+    icon: [
+      { url: '/icon.svg', type: 'image/svg+xml' }
+    ]
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
