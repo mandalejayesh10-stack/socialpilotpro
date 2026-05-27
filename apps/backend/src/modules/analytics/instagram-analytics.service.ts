@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
-import { decrypt } from '../../common/utils/crypto.util';
+import { safeDecrypt } from '../../common/utils/crypto.util';
 import { AnalyticsSnapshotService } from './analytics-snapshot.service';
 
 @Injectable()
@@ -11,9 +11,15 @@ export class InstagramAnalyticsService {
   constructor(private snapshots: AnalyticsSnapshotService) {}
 
   async syncDemographics(integration: any) {
-    const token = decrypt(integration.accessToken);
+    // Prefer pageAccessToken for Instagram — it's the page-scoped token with IG permissions
+    const rawToken = integration.pageAccessToken || integration.accessToken;
+    const token = safeDecrypt(rawToken);
     const accountId = integration.internalId;
     if (!accountId) return { skipped: true, reason: 'missing_instagram_account_id' };
+    if (!token) {
+      this.logger.error(`[syncDemographics] Token decryption failed for integration ${integration.id} — skipping`);
+      return { skipped: true, reason: 'token_decryption_failed' };
+    }
 
     const metrics = await this.fetchDemographics(accountId, token);
     await this.snapshots.storeDemographics({

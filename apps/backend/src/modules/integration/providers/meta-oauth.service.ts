@@ -128,6 +128,12 @@ export class MetaOAuthService implements OnModuleInit {
     pictureUrl?: string;
     category?: string;
   }>> {
+    if (!userToken) {
+      this.logger.error('[getPages] User token is null/empty — cannot fetch pages');
+      return [];
+    }
+    this.logger.log(`[getPages] Fetching pages with token: ${userToken.slice(0, 8)}...`);
+
     const res = await axios.get(`${this.BASE_URL}/me/accounts`, {
       params: {
         access_token: userToken,
@@ -135,13 +141,20 @@ export class MetaOAuthService implements OnModuleInit {
       },
     });
 
-    return res.data.data.map((page: any) => ({
+    const pages = (res.data.data || []).map((page: any) => ({
       id: page.id,
       name: page.name,
       accessToken: page.access_token,
       pictureUrl: page.picture?.data?.url,
       category: page.category,
     }));
+
+    // Log page details (masked tokens)
+    for (const page of pages) {
+      this.logger.log(`[getPages] Page: ${page.name} (${page.id}), hasToken=${!!page.accessToken}, tokenStart=${page.accessToken?.slice(0, 8) || 'NULL'}...`);
+    }
+
+    return pages;
   }
 
   // ── Get Instagram Business Account linked to a Page ───────
@@ -153,17 +166,31 @@ export class MetaOAuthService implements OnModuleInit {
     followersCount?: number;
     accountType?: string;
   } | null> {
+    if (!pageToken) {
+      this.logger.error(`[getInstagramAccount] Page token is null/empty for page ${pageId} — skipping IG discovery`);
+      return null;
+    }
+    this.logger.log(`[getInstagramAccount] Querying page ${pageId} with token: ${pageToken.slice(0, 8)}...`);
+
     try {
-      const res = await axios.get(`${this.BASE_URL}/${pageId}`, {
+      const url = `${this.BASE_URL}/${pageId}`;
+      this.logger.log(`[getInstagramAccount] GET ${url}?fields=instagram_business_account{...}`);
+
+      const res = await axios.get(url, {
         params: {
           access_token: pageToken,
           fields: 'instagram_business_account{id,name,username,profile_picture_url,followers_count,account_type}',
         },
       });
 
+      this.logger.log(`[getInstagramAccount] Response keys: ${Object.keys(res.data).join(', ')}`);
       const ig = res.data.instagram_business_account;
-      if (!ig) return null;
+      if (!ig) {
+        this.logger.log(`[getInstagramAccount] No instagram_business_account linked to page ${pageId}`);
+        return null;
+      }
 
+      this.logger.log(`[getInstagramAccount] Found IG: id=${ig.id}, username=${ig.username}, followers=${ig.followers_count}`);
       return {
         id: ig.id,
         name: ig.name,
@@ -172,8 +199,9 @@ export class MetaOAuthService implements OnModuleInit {
         followersCount: ig.followers_count,
         accountType: ig.account_type,
       };
-    } catch {
-      this.logger.warn(`No Instagram account for page ${pageId}`);
+    } catch (err: any) {
+      const errMsg = err?.response?.data ? JSON.stringify(err.response.data) : err.message;
+      this.logger.error(`[getInstagramAccount] Failed for page ${pageId}: ${errMsg}`);
       return null;
     }
   }

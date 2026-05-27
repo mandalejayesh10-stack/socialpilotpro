@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
-import { decrypt } from '../../common/utils/crypto.util';
+import { safeDecrypt } from '../../common/utils/crypto.util';
 import { AnalyticsSnapshotService } from './analytics-snapshot.service';
 
 @Injectable()
@@ -11,9 +11,13 @@ export class FacebookAnalyticsService {
   constructor(private snapshots: AnalyticsSnapshotService) {}
 
   async syncDemographics(integration: any) {
-    const token = integration.pageAccessToken ? decrypt(integration.pageAccessToken) : decrypt(integration.accessToken);
+    const token = integration.pageAccessToken ? safeDecrypt(integration.pageAccessToken) : safeDecrypt(integration.accessToken);
     const pageId = integration.pageId || integration.internalId;
     if (!pageId) return { skipped: true, reason: 'missing_facebook_page_id' };
+    if (!token) {
+      this.logger.error(`[syncDemographics] Token decryption failed for integration ${integration.id} — skipping`);
+      return { skipped: true, reason: 'token_decryption_failed' };
+    }
 
     const metrics = await this.fetchDemographics(pageId, token);
     await this.snapshots.storeDemographics({

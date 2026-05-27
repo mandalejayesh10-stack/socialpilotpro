@@ -3,7 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../database/prisma.service';
 import { MetaOAuthService } from './providers/meta-oauth.service';
 import { YoutubeOAuthService } from './providers/youtube-oauth.service';
-import { encrypt, decrypt } from '../../common/utils/crypto.util';
+import { encrypt, decrypt, safeDecrypt } from '../../common/utils/crypto.util';
 
 @Injectable()
 export class TokenRefreshService {
@@ -60,7 +60,11 @@ export class TokenRefreshService {
         return;
       }
 
-      const decryptedRefresh = decrypt(integration.refreshToken);
+      const decryptedRefresh = safeDecrypt(integration.refreshToken);
+      if (!decryptedRefresh) {
+        this.logger.error(`[TokenRefresh] Failed to decrypt refresh token for integration ${integration.id}`);
+        return;
+      }
       const { accessToken, expiryDate } = await this.youtubeOAuth.refreshToken(decryptedRefresh);
 
       await this.prisma.integration.update({
@@ -76,7 +80,11 @@ export class TokenRefreshService {
     }
 
     if (integration.platform === 'FACEBOOK' || integration.platform === 'INSTAGRAM') {
-      const decryptedToken = decrypt(integration.accessToken);
+      const decryptedToken = safeDecrypt(integration.accessToken);
+      if (!decryptedToken) {
+        this.logger.error(`[TokenRefresh] Failed to decrypt access token for Meta integration ${integration.id}`);
+        return;
+      }
       const { accessToken, expiresIn } = await this.metaOAuth.refreshToken(decryptedToken);
 
       const expiry = new Date(Date.now() + expiresIn * 1000);

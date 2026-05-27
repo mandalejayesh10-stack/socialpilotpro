@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import axios from 'axios';
 import { google } from 'googleapis';
-import { decrypt } from '../../common/utils/crypto.util';
+import { safeDecrypt } from '../../common/utils/crypto.util';
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -234,8 +234,16 @@ export class BestTimeService {
 
     for (const integration of integrations) {
       try {
-        const token = decrypt(integration.accessToken);
-        const refreshToken = integration.refreshToken ? decrypt(integration.refreshToken) : null;
+        // Prefer pageAccessToken for Instagram/Facebook
+        const rawToken = (platform === 'INSTAGRAM' || platform === 'FACEBOOK')
+          ? (integration.pageAccessToken || integration.accessToken)
+          : integration.accessToken;
+        const token = safeDecrypt(rawToken);
+        const refreshToken = integration.refreshToken ? safeDecrypt(integration.refreshToken) : null;
+        if (!token) {
+          this.logger.error(`[BestTime] Token decryption failed for ${integration.id} — skipping`);
+          continue;
+        }
 
         if (platform === 'INSTAGRAM') {
           totalPosts += await this.fetchInstagramMetrics(integration, token, grid, contentTypeMap);
@@ -347,7 +355,7 @@ export class BestTimeService {
     const META_VERSION = process.env.META_API_VERSION || 'v21.0';
     const BASE = `https://graph.facebook.com/${META_VERSION}`;
     const pageId = integration.pageId || integration.internalId;
-    const pageToken = integration.pageAccessToken ? decrypt(integration.pageAccessToken) : token;
+    const pageToken = integration.pageAccessToken ? safeDecrypt(integration.pageAccessToken) : token;
     let count = 0;
 
     try {

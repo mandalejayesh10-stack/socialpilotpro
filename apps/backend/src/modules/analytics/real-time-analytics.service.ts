@@ -1,6 +1,6 @@
-﻿import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "../database/prisma.service";
-import { decrypt } from "../../common/utils/crypto.util";
+import { decrypt, safeDecrypt } from "../../common/utils/crypto.util";
 import { google } from "googleapis";
 import axios from "axios";
 
@@ -61,8 +61,17 @@ export class RealTimeAnalyticsService {
 
   // ── Sync a single integration ─────────────────────────────
   async syncIntegration(integration: any) {
-    const token = decrypt(integration.accessToken);
-    const refreshToken = integration.refreshToken ? decrypt(integration.refreshToken) : null;
+    // For Instagram/Facebook, prefer pageAccessToken over accessToken
+    const rawToken = (integration.platform === 'INSTAGRAM' || integration.platform === 'FACEBOOK')
+      ? (integration.pageAccessToken || integration.accessToken)
+      : integration.accessToken;
+    const token = safeDecrypt(rawToken);
+    const refreshToken = integration.refreshToken ? safeDecrypt(integration.refreshToken) : null;
+
+    if (!token) {
+      this.logger.error(`[syncIntegration] Failed to decrypt token for ${integration.platform} integration ${integration.id} — skipping`);
+      return { error: 'Token decryption failed — token may be null or corrupted' };
+    }
 
     if (integration.platform === "YOUTUBE") {
       return this.syncYouTube(integration, token, refreshToken);
@@ -346,7 +355,11 @@ export class RealTimeAnalyticsService {
     const META_VERSION = process.env.META_API_VERSION || "v21.0";
     const BASE = `https://graph.facebook.com/${META_VERSION}`;
     const pageId = integration.pageId || integration.internalId;
-    const pageToken = integration.pageAccessToken ? decrypt(integration.pageAccessToken) : token;
+    const pageToken = integration.pageAccessToken ? safeDecrypt(integration.pageAccessToken) : token;
+    if (!pageToken) {
+      this.logger.error(`[syncFacebook] No valid token for page ${pageId} — skipping`);
+      return { error: 'No valid token for Facebook page' };
+    }
 
     // 1. Page basic stats
     let fanCount = 0;
@@ -606,8 +619,12 @@ export class RealTimeAnalyticsService {
 
     for (const integration of integrations) {
       try {
-        const token = decrypt(integration.accessToken);
-        const refreshToken = integration.refreshToken ? decrypt(integration.refreshToken) : null;
+        const token = safeDecrypt(integration.accessToken);
+        const refreshToken = integration.refreshToken ? safeDecrypt(integration.refreshToken) : null;
+        if (!token) {
+          this.logger.error(`[getYouTubeVideos] Token decryption failed for integration ${integration.id} — skipping`);
+          continue;
+        }
 
         const auth = new google.auth.OAuth2(
           process.env.YOUTUBE_CLIENT_ID,
@@ -721,8 +738,12 @@ export class RealTimeAnalyticsService {
     const stats: any[] = [];
     for (const integration of integrations) {
       try {
-        const token = decrypt(integration.accessToken);
-        const refreshToken = integration.refreshToken ? decrypt(integration.refreshToken) : null;
+        const token = safeDecrypt(integration.accessToken);
+        const refreshToken = integration.refreshToken ? safeDecrypt(integration.refreshToken) : null;
+        if (!token) {
+          this.logger.error(`[getYouTubeStats] Token decryption failed for integration ${integration.id} — skipping`);
+          continue;
+        }
 
         const auth = new google.auth.OAuth2(
           process.env.YOUTUBE_CLIENT_ID,
@@ -814,8 +835,15 @@ export class RealTimeAnalyticsService {
       try {
         const META_VERSION = process.env.META_API_VERSION || 'v21.0';
         const BASE = `https://graph.facebook.com/${META_VERSION}`;
-        const token = decrypt(integration.accessToken);
+        // Prefer pageAccessToken for Instagram (it's the page token that has IG permissions)
+        const rawToken = integration.pageAccessToken || integration.accessToken;
+        const token = safeDecrypt(rawToken);
         const accountId = integration.internalId;
+        if (!token) {
+          this.logger.error(`[getInstagramRealtime] Token decryption failed for integration ${integration.id} — skipping`);
+          continue;
+        }
+        this.logger.log(`[getInstagramRealtime] Using token for IG account ${accountId}: ${token.slice(0, 8)}...`);
 
         // Profile stats
         const profileRes = await axios.get(`${BASE}/${accountId}`, {
@@ -910,8 +938,14 @@ export class RealTimeAnalyticsService {
       try {
         const META_VERSION = process.env.META_API_VERSION || 'v21.0';
         const BASE = `https://graph.facebook.com/${META_VERSION}`;
-        const token = decrypt(integration.accessToken);
+        // Prefer pageAccessToken for Instagram (it's the page token that has IG permissions)
+        const rawToken = integration.pageAccessToken || integration.accessToken;
+        const token = safeDecrypt(rawToken);
         const accountId = integration.internalId;
+        if (!token) {
+          this.logger.error(`[getInstagramPosts] Token decryption failed for integration ${integration.id} — skipping`);
+          continue;
+        }
 
         const mediaRes = await axios.get(`${BASE}/${accountId}/media`, {
           params: {
@@ -979,9 +1013,13 @@ export class RealTimeAnalyticsService {
       try {
         const META_VERSION = process.env.META_API_VERSION || 'v21.0';
         const BASE = `https://graph.facebook.com/${META_VERSION}`;
-        const token = decrypt(integration.accessToken);
+        const token = safeDecrypt(integration.accessToken);
         const pageId = integration.pageId || integration.internalId;
-        const pageToken = integration.pageAccessToken ? decrypt(integration.pageAccessToken) : token;
+        const pageToken = integration.pageAccessToken ? safeDecrypt(integration.pageAccessToken) : token;
+        if (!pageToken) {
+          this.logger.error(`[getFacebookRealtime] Token decryption failed for integration ${integration.id} — skipping`);
+          continue;
+        }
 
         // Page stats
         let fanCount = 0;
@@ -1078,9 +1116,13 @@ export class RealTimeAnalyticsService {
       try {
         const META_VERSION = process.env.META_API_VERSION || 'v21.0';
         const BASE = `https://graph.facebook.com/${META_VERSION}`;
-        const token = decrypt(integration.accessToken);
+        const token = safeDecrypt(integration.accessToken);
         const pageId = integration.pageId || integration.internalId;
-        const pageToken = integration.pageAccessToken ? decrypt(integration.pageAccessToken) : token;
+        const pageToken = integration.pageAccessToken ? safeDecrypt(integration.pageAccessToken) : token;
+        if (!pageToken) {
+          this.logger.error(`[getFacebookPosts] Token decryption failed for integration ${integration.id} — skipping`);
+          continue;
+        }
 
         const postsRes = await axios.get(`${BASE}/${pageId}/posts`, {
           params: {

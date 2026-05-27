@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { google } from 'googleapis';
-import { decrypt } from '../../common/utils/crypto.util';
+import { safeDecrypt } from '../../common/utils/crypto.util';
 import { AnalyticsSnapshotService } from './analytics-snapshot.service';
 
 @Injectable()
@@ -14,9 +14,15 @@ export class YouTubeAnalyticsService {
       process.env.YOUTUBE_CLIENT_ID,
       process.env.YOUTUBE_CLIENT_SECRET,
     );
+    const token = safeDecrypt(integration.accessToken);
+    const refreshToken = integration.refreshToken ? safeDecrypt(integration.refreshToken) : undefined;
+    if (!token) {
+      this.logger.error(`[syncDemographics] Token decryption failed for integration ${integration.id} — skipping`);
+      return { skipped: true, reason: 'token_decryption_failed' };
+    }
     auth.setCredentials({
-      access_token: decrypt(integration.accessToken),
-      refresh_token: integration.refreshToken ? decrypt(integration.refreshToken) : undefined,
+      access_token: token,
+      refresh_token: refreshToken,
     });
 
     const analytics = google.youtubeAnalytics({ version: 'v2', auth });
