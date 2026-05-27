@@ -17,6 +17,22 @@ export class MediaUrlValidatorService {
   private readonly logger = new Logger(MediaUrlValidatorService.name);
   private readonly timeoutMs = Number(process.env.MEDIA_URL_PREFLIGHT_TIMEOUT_MS || 15_000);
 
+  isBackendLoopbackUrl(url: string): boolean {
+    try {
+      const hostname = new URL(url).hostname.toLowerCase();
+      if (hostname.includes('railway.app')) return true;
+      const myInternalRaw = process.env.BACKEND_INTERNAL_URL || '';
+      const myPublicRaw = process.env.BACKEND_PUBLIC_URL || process.env.NEXT_PUBLIC_BACKEND_URL || '';
+      
+      const myInternalHost = myInternalRaw ? new URL(myInternalRaw).hostname.toLowerCase() : '';
+      const myPublicHost = myPublicRaw ? new URL(myPublicRaw).hostname.toLowerCase() : '';
+      
+      return hostname === myInternalHost || hostname === myPublicHost;
+    } catch {
+      return false;
+    }
+  }
+
   isPrivateOrLocalUrl(url: string): boolean {
     try {
       const hostname = new URL(url).hostname.toLowerCase();
@@ -41,6 +57,12 @@ export class MediaUrlValidatorService {
       parsed = new URL(url);
     } catch {
       return this.fail(url, 'Media URL is not absolute');
+    }
+
+    const isLoopback = this.isBackendLoopbackUrl(url);
+    if (isLoopback) {
+      this.logger.log(`[MediaPreflight] Bypassing reachability probe for backend loopback URL: ${url}`);
+      return { url, ok: true, publishSafe: true, method: 'GET', status: 200, contentType: this.guessMime(url) };
     }
 
     if (parsed.protocol !== 'https:' && process.env.ALLOW_HTTP_MEDIA_URLS !== 'true') {
@@ -83,6 +105,16 @@ export class MediaUrlValidatorService {
     } catch (err: any) {
       return this.fail(url, `Public reachability request failed: ${err.code || err.message}`);
     }
+  }
+
+  private guessMime(url: string): string {
+    const ext = url.split('.').pop()?.split('?')[0].toLowerCase();
+    if (['jpg', 'jpeg'].includes(ext || '')) return 'image/jpeg';
+    if (ext === 'png') return 'image/png';
+    if (ext === 'gif') return 'image/gif';
+    if (ext === 'mp4') return 'video/mp4';
+    if (ext === 'mov') return 'video/quicktime';
+    return 'application/octet-stream';
   }
 
   private evaluate(url: string, method: 'HEAD' | 'GET', status: number, headers: any, mediaKind: string): MediaUrlValidationResult {

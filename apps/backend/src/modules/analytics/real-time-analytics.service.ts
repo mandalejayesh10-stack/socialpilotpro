@@ -94,9 +94,9 @@ export class RealTimeAnalyticsService {
     const youtube = google.youtube({ version: "v3", auth });
     const youtubeAnalytics = google.youtubeAnalytics({ version: "v2", auth });
 
-    // 1. Channel stats
+    // 1. Channel stats (including contentDetails to fetch uploads playlist)
     const channelRes = await youtube.channels.list({
-      part: ["statistics", "snippet"],
+      part: ["statistics", "snippet", "contentDetails"],
       mine: true,
     });
     const channel = channelRes.data.items?.[0];
@@ -121,8 +121,23 @@ export class RealTimeAnalyticsService {
         sort: "day",
       });
       analyticsRows = analyticsRes.data.rows || [];
-    } catch (err) {
-      this.logger.warn(`YouTube Analytics API: ${err.message}`);
+    } catch (err: any) {
+      const isQuota = err?.code === 403 || err?.message?.includes('quota') || JSON.stringify(err)?.includes('quota');
+      if (isQuota) {
+        this.logger.error(`[syncYouTube] QUOTA EXHAUSTED: YouTube API quota limit reached. Details: ${err.message}`);
+      } else {
+        this.logger.error(`[syncYouTube] YouTube Analytics API error: ${err.message}`);
+      }
+    }
+
+    // Zero-value Fallback Generation for empty/test channels
+    if (analyticsRows.length === 0) {
+      this.logger.warn(`[syncYouTube] Empty analytics returned for channel ${integration.internalId} — generating zero timelines fallback.`);
+      const days = 30;
+      for (let i = 0; i < days; i++) {
+        const dateStr = new Date(Date.now() - (days - 1 - i) * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+        analyticsRows.push([dateStr, 0, 0, 0, 0, 0, 0, 0]);
+      }
     }
 
     // 3. Store daily snapshots from analytics data
@@ -130,6 +145,9 @@ export class RealTimeAnalyticsService {
       const [date, views, watchTime, likes, comments, shares, subsGained, subsLost] = row;
       const periodDate = new Date(date);
       periodDate.setHours(0, 0, 0, 0);
+
+      const viewsNum = Number(views || 0);
+      const dailyEngagementRate = viewsNum > 0 ? (((likes || 0) + (comments || 0) + (shares || 0)) / viewsNum) * 100 : 0;
 
       await this.prisma.accountMetrics.upsert({
         where: { integrationId_periodDate: { integrationId: integration.id, periodDate } },
@@ -146,23 +164,24 @@ export class RealTimeAnalyticsService {
           totalLikes: likes || 0,
           totalComments: comments || 0,
           totalShares: shares || 0,
-          totalReach: views || 0,
-          totalImpressions: views || 0,
-          avgEngagementRate: 0,
+          totalReach: viewsNum,
+          totalImpressions: viewsNum,
+          avgEngagementRate: dailyEngagementRate,
           subscribers: subscribers,
-          totalViews: views || 0,
+          totalViews: viewsNum,
           watchTimeMinutes: watchTime || 0,
         },
         update: {
           totalLikes: likes || 0,
           totalComments: comments || 0,
           totalShares: shares || 0,
-          totalReach: views || 0,
-          totalImpressions: views || 0,
+          totalReach: viewsNum,
+          totalImpressions: viewsNum,
           subscribers: subscribers,
-          totalViews: views || 0,
+          totalViews: viewsNum,
           watchTimeMinutes: watchTime || 0,
           followersGrowth: (subsGained || 0) - (subsLost || 0),
+          avgEngagementRate: dailyEngagementRate,
           computedAt: new Date(),
         },
       });
@@ -200,18 +219,38 @@ export class RealTimeAnalyticsService {
       },
     });
 
-    // 5. Fetch recent videos
-    const videosRes = await youtube.search.list({
-      part: ["snippet"],
-      forMine: true,
-      type: ["video"],
-      maxResults: 50,
-      order: "date",
-    });
+    // 5. Fetch recent videos via uploads playlist
+    let videoIds: string[] = [];
+    try {
+      const uploadsPlaylistId = channel.contentDetails?.relatedPlaylists?.uploads 
+        || `UU${channel.id.slice(2)}`;
 
-    const videoIds = (videosRes.data.items || [])
-      .map((v: any) => v.id?.videoId)
-      .filter(Boolean) as string[];
+      this.logger.log(`[syncYouTube] Fetching uploads playlist items for channel ${channel.id}: ${uploadsPlaylistId}`);
+      const playlistItemsRes = await youtube.playlistItems.list({
+        part: ["snippet"],
+        playlistId: uploadsPlaylistId,
+        maxResults: 50,
+      });
+      videoIds = (playlistItemsRes.data.items || [])
+        .map((item: any) => item.snippet?.resourceId?.videoId)
+        .filter(Boolean) as string[];
+    } catch (err: any) {
+      this.logger.warn(`Failed to fetch recent videos via uploads playlist in syncYouTube: ${err.message}. Falling back to search.list.`);
+      try {
+        const videosRes = await youtube.search.list({
+          part: ["snippet"],
+          forMine: true,
+          type: ["video"],
+          maxResults: 50,
+          order: "date",
+        });
+        videoIds = (videosRes.data.items || [])
+          .map((v: any) => v.id?.videoId)
+          .filter(Boolean) as string[];
+      } catch (searchErr: any) {
+        this.logger.error(`YouTube search.list failed inside fallback of syncYouTube: ${searchErr.message}`);
+      }
+    }
 
     let videoDetails: any[] = [];
     if (videoIds.length > 0) {
@@ -220,6 +259,97 @@ export class RealTimeAnalyticsService {
         id: videoIds,
       });
       videoDetails = detailsRes.data.items || [];
+
+      // Fetch daily metrics for these videos to write to VideoAnalytics table
+      try {
+        const videoAnalyticsRes = await youtubeAnalytics.reports.query({
+          ids: "channel==MINE",
+          startDate,
+          endDate,
+          metrics: "views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,likes,comments,shares,subscribersGained",
+          dimensions: "video,day",
+          filters: `video==${videoIds.join(",")}`,
+        });
+        const dailyVideoRows = videoAnalyticsRes.data.rows || [];
+
+        // Build details map
+        const videoDetailsMap = new Map<string, any>();
+        for (const item of videoDetails) {
+          const duration = item.contentDetails?.duration || '';
+          const match = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+          const seconds = match ? Number(match[1] || 0) * 3600 + Number(match[2] || 0) * 60 + Number(match[3] || 0) : 0;
+          const isShort = seconds > 0 && seconds <= 60;
+          videoDetailsMap.set(item.id!, {
+            title: item.snippet?.title || '',
+            thumbnailUrl: item.snippet?.thumbnails?.medium?.url || item.snippet?.thumbnails?.default?.url || '',
+            publishedAt: item.snippet?.publishedAt ? new Date(item.snippet.publishedAt) : null,
+            isShort,
+          });
+        }
+
+        // Upsert into VideoAnalytics
+        for (const row of dailyVideoRows) {
+          const [videoId, dateStr, views, watchTimeMinutes, avgDuration, retention, likes, comments, shares, subsGained] = row;
+          const periodDate = new Date(dateStr);
+          periodDate.setHours(0, 0, 0, 0);
+
+          const details = videoDetailsMap.get(videoId) || {};
+          const viewsNum = Number(views || 0);
+          const likesNum = Number(likes || 0);
+          const commentsNum = Number(comments || 0);
+          const sharesNum = Number(shares || 0);
+          const engagementRate = viewsNum > 0 ? (((likesNum + commentsNum + sharesNum) / viewsNum) * 100) : 0;
+
+          await this.prisma.videoAnalytics.upsert({
+            where: {
+              integrationId_externalId_periodDate: {
+                integrationId: integration.id,
+                externalId: videoId,
+                periodDate,
+              },
+            },
+            create: {
+              organizationId: integration.organizationId,
+              integrationId: integration.id,
+              platform: "YOUTUBE",
+              externalId: videoId,
+              title: details.title || null,
+              thumbnailUrl: details.thumbnailUrl || null,
+              publishedAt: details.publishedAt || null,
+              isShort: details.isShort || false,
+              periodDate,
+              views: viewsNum,
+              watchTime: Number(watchTimeMinutes || 0),
+              averageViewDuration: Number(avgDuration || 0),
+              retention: Number(retention || 0),
+              likes: likesNum,
+              comments: commentsNum,
+              shares: sharesNum,
+              subscribersGained: Number(subsGained || 0),
+              engagementRate,
+              rawData: JSON.stringify(row),
+            },
+            update: {
+              title: details.title || null,
+              thumbnailUrl: details.thumbnailUrl || null,
+              publishedAt: details.publishedAt || null,
+              isShort: details.isShort || false,
+              views: viewsNum,
+              watchTime: Number(watchTimeMinutes || 0),
+              averageViewDuration: Number(avgDuration || 0),
+              retention: Number(retention || 0),
+              likes: likesNum,
+              comments: commentsNum,
+              shares: sharesNum,
+              subscribersGained: Number(subsGained || 0),
+              engagementRate,
+              rawData: JSON.stringify(row),
+            },
+          });
+        }
+      } catch (err: any) {
+        this.logger.warn(`[syncYouTube] VideoAnalytics write failed/skipped: ${err.message}`);
+      }
     }
 
     // 6. Compute and store summary
@@ -635,18 +765,43 @@ export class RealTimeAnalyticsService {
         const youtube = google.youtube({ version: "v3", auth });
         const youtubeAnalytics = google.youtubeAnalytics({ version: "v2", auth });
 
-        const searchRes = await this.getCached(`yt:rt:search:${integration.id}:${search || ''}`, 5 * 60 * 1000, () => youtube.search.list({
-          part: ["snippet"],
-          forMine: true,
-          type: ["video"],
-          maxResults: 50,
-          order: "date",
-          ...(search && { q: search }),
-        }));
+        let videoIds: string[] = [];
+        try {
+          const uploadsPlaylistId = `UU${integration.internalId.slice(2)}`;
+          this.logger.log(`[getYouTubeVideos] Querying uploads playlist: ${uploadsPlaylistId}`);
+          
+          const playlistItemsRes = await this.getCached(`yt:rt:playlist:${uploadsPlaylistId}`, 5 * 60 * 1000, () => youtube.playlistItems.list({
+            part: ["snippet"],
+            playlistId: uploadsPlaylistId,
+            maxResults: 50,
+          }));
 
-        const videoIds = (searchRes.data.items || [])
-          .map((v: any) => v.id?.videoId)
-          .filter(Boolean) as string[];
+          let items = playlistItemsRes.data.items || [];
+          if (search) {
+            const query = search.toLowerCase();
+            items = items.filter((item: any) =>
+              item.snippet?.title?.toLowerCase().includes(query) ||
+              item.snippet?.description?.toLowerCase().includes(query)
+            );
+          }
+
+          videoIds = items
+            .map((item: any) => item.snippet?.resourceId?.videoId)
+            .filter(Boolean) as string[];
+        } catch (err: any) {
+          this.logger.warn(`Failed to fetch videos via uploads playlist: ${err.message}. Falling back to search.list.`);
+          const searchRes = await this.getCached(`yt:rt:search:${integration.id}:${search || ''}`, 5 * 60 * 1000, () => youtube.search.list({
+            part: ["snippet"],
+            forMine: true,
+            type: ["video"],
+            maxResults: 50,
+            order: "date",
+            ...(search && { q: search }),
+          }));
+          videoIds = (searchRes.data.items || [])
+            .map((v: any) => v.id?.videoId)
+            .filter(Boolean) as string[];
+        }
 
         if (videoIds.length === 0) continue;
 

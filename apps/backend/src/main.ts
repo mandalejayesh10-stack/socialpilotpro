@@ -97,6 +97,8 @@ async function bootstrap() {
     if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
   });
 
+  const express = require('express');
+  app.use('/uploads', express.static(uploadDir));
   app.useStaticAssets(uploadDir,   { prefix: '/uploads' });
 
   // ── CORS ────────────────────────────────────────────────────

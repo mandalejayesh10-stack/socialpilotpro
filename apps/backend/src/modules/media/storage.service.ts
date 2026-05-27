@@ -296,7 +296,10 @@ export class StorageService {
       process.env.BACKEND_INTERNAL_URL ||
       process.env.NEXT_PUBLIC_BACKEND_URL ||
       '';
-    const base = raw.replace(/\/+$/, '');
+    let base = raw.replace(/\/+$/, '');
+    if (base.startsWith('http://') && (base.includes('railway.app') || process.env.NODE_ENV === 'production')) {
+      base = base.replace(/^http:\/\//i, 'https://');
+    }
     if (!base.startsWith('https://')) return null;
     try {
       const parsed = new URL(base);

@@ -380,6 +380,22 @@ export class PostSchedulerService {
     return `${backendUrl.replace(/\/+$/, '')}/uploads/${filename}`;
   }
 
+  private isBackendLoopbackUrl(url: string): boolean {
+    try {
+      const hostname = new URL(url).hostname.toLowerCase();
+      if (hostname.includes('railway.app')) return true;
+      const myInternalRaw = process.env.BACKEND_INTERNAL_URL || '';
+      const myPublicRaw = process.env.BACKEND_PUBLIC_URL || process.env.NEXT_PUBLIC_BACKEND_URL || '';
+      
+      const myInternalHost = myInternalRaw ? new URL(myInternalRaw).hostname.toLowerCase() : '';
+      const myPublicHost = myPublicRaw ? new URL(myPublicRaw).hostname.toLowerCase() : '';
+      
+      return hostname === myInternalHost || hostname === myPublicHost;
+    } catch {
+      return false;
+    }
+  }
+
   private async preflightPublicMediaUrl(url: string, isVideo: boolean): Promise<MediaPreflightResult> {
     if (!url) return { url, ok: false, reason: 'Missing media URL' };
 
@@ -388,6 +404,12 @@ export class PostSchedulerService {
       parsed = new URL(url);
     } catch {
       return { url, ok: false, reason: 'Media URL is not absolute' };
+    }
+
+    const isLoopback = this.isBackendLoopbackUrl(url);
+    if (isLoopback) {
+      this.logger.log(`[MediaPreflight] Bypassing reachability probe for backend loopback URL: ${url}`);
+      return { url, ok: true, method: 'GET', status: 200, contentType: isVideo ? 'video/mp4' : 'image/jpeg' };
     }
 
     if (parsed.protocol !== 'https:' && process.env.ALLOW_HTTP_MEDIA_URLS !== 'true') {
