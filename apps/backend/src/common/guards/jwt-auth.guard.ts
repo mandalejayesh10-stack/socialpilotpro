@@ -14,13 +14,18 @@ export class JwtAuthGuard implements CanActivate {
   constructor(private reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
+    const request = context.switchToHttp().getRequest();
+    const url = request.url || request.path || '';
+    if (url.includes('/uploads/') || url.includes('/privacy') || url.includes('/terms')) {
+      return true;
+    }
+
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
       context.getHandler(),
       context.getClass(),
     ]);
     if (isPublic) return true;
 
-    const request = context.switchToHttp().getRequest();
     const token = this.extractToken(request);
 
     if (!token) {

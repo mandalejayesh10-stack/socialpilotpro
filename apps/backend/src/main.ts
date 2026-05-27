@@ -217,6 +217,22 @@ async function bootstrap() {
 </main></body></html>`);
   });
 
+  // ── Public Direct Media Route (Bypass NestJS completely) ──────
+  expressApp.get('/uploads/*', (req: any, res: any, next: any) => {
+    const relativePath = decodeURIComponent(req.path.substring('/uploads'.length));
+    const filePath = path.resolve(uploadDir, relativePath.startsWith('/') ? relativePath.substring(1) : relativePath);
+    
+    if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+      // Set permissive cache headers for CDN/Meta scraping
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      return res.sendFile(filePath);
+    }
+    
+    logger.warn(`[PublicUploads] File not found or not a file: ${filePath}`);
+    res.status(404).send(`Cannot GET ${req.path}`);
+  });
+
   logger.log(`✅ Legal pages: ${tunnelUrl}/privacy  |  ${tunnelUrl}/terms`);
 
   // ── API prefix ───────────────────────────────────────────────

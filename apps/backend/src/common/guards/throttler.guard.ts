@@ -8,9 +8,9 @@ import { ThrottlerGuard } from '@nestjs/throttler';
 export class CustomThrottlerGuard extends ThrottlerGuard {
   protected async shouldSkip(context: any): Promise<boolean> {
     const req = context.switchToHttp().getRequest();
-    // Skip health checks and webhook endpoints
-    const skip = ['/api/health', '/api/billing/webhook'];
-    return skip.some((p) => req.url?.startsWith(p));
+    // Skip health checks, uploads, and webhook endpoints
+    const skip = ['/api/health', '/api/billing/webhook', '/uploads', '/api/uploads'];
+    return skip.some((p) => req.url?.startsWith(p) || req.path?.startsWith(p));
   }
 
   protected getTracker(req: Record<string, any>): Promise<string> {
