@@ -63,6 +63,7 @@ export class MetaOAuthService implements OnModuleInit {
         'pages_read_engagement',
         'pages_manage_posts',
         'instagram_basic',
+        'instagram_manage_accounts',
         'instagram_content_publish',
         'instagram_manage_insights',
         'instagram_manage_comments',
@@ -120,13 +121,15 @@ export class MetaOAuthService implements OnModuleInit {
     };
   }
 
-  // ── Get Facebook Pages ────────────────────────────────────
+  // ── Get Facebook Pages (with embedded Instagram data) ───────
   async getPages(userToken: string): Promise<Array<{
     id: string;
     name: string;
     accessToken: string;
     pictureUrl?: string;
     category?: string;
+    instagramBusinessAccountId?: string;
+    connectedInstagramAccountId?: string;
   }>> {
     if (!userToken) {
       this.logger.error('[getPages] User token is null/empty — cannot fetch pages');
@@ -134,31 +137,52 @@ export class MetaOAuthService implements OnModuleInit {
     }
     this.logger.log(`[getPages] Fetching pages with token: ${userToken.slice(0, 8)}...`);
 
-    const res = await axios.get(`${this.BASE_URL}/me/accounts`, {
-      params: {
-        access_token: userToken,
-        fields: 'id,name,access_token,picture,category',
-      },
+    // Request instagram_business_account AND connected_instagram_account in the same call
+    const url = `${this.BASE_URL}/me/accounts`;
+    const fields = 'id,name,access_token,picture,category,instagram_business_account,connected_instagram_account';
+    this.logger.log(`[getPages] GET ${url}?fields=${fields}`);
+
+    const res = await axios.get(url, {
+      params: { access_token: userToken, fields },
     });
 
-    const pages = (res.data.data || []).map((page: any) => ({
-      id: page.id,
-      name: page.name,
-      accessToken: page.access_token,
-      pictureUrl: page.picture?.data?.url,
-      category: page.category,
-    }));
+    const rawPages = res.data.data || [];
+    this.logger.log(`[getPages] Raw /me/accounts response: ${rawPages.length} pages`);
 
-    // Log page details (masked tokens)
-    for (const page of pages) {
-      this.logger.log(`[getPages] Page: ${page.name} (${page.id}), hasToken=${!!page.accessToken}, tokenStart=${page.accessToken?.slice(0, 8) || 'NULL'}...`);
-    }
+    const pages = rawPages.map((page: any) => {
+      const igBiz  = page.instagram_business_account;
+      const igConn = page.connected_instagram_account;
 
+      this.logger.log(
+        `[getPages] Page payload: id=${page.id}, name="${page.name}", ` +
+        `has_access_token=${!!page.access_token}, ` +
+        `instagram_business_account=${igBiz ? igBiz.id : 'NONE'}, ` +
+        `connected_instagram_account=${igConn ? igConn.id : 'NONE'}`,
+      );
+
+      return {
+        id: page.id,
+        name: page.name,
+        accessToken: page.access_token,
+        pictureUrl: page.picture?.data?.url,
+        category: page.category,
+        instagramBusinessAccountId: igBiz?.id || null,
+        connectedInstagramAccountId: igConn?.id || null,
+      };
+    });
+
+    this.logger.log(`[getPages] Mapped ${pages.length} pages. Pages with IG biz account: ${pages.filter((p: any) => p.instagramBusinessAccountId).length}, Pages with connected IG: ${pages.filter((p: any) => p.connectedInstagramAccountId).length}`);
     return pages;
   }
 
   // ── Get Instagram Business Account linked to a Page ───────
-  async getInstagramAccount(pageId: string, pageToken: string): Promise<{
+  // Tries instagram_business_account first, falls back to connected_instagram_account
+  async getInstagramAccount(
+    pageId: string,
+    pageToken: string,
+    hintIgBizId?: string | null,
+    hintIgConnId?: string | null,
+  ): Promise<{
     id: string;
     name: string;
     username: string;
@@ -167,41 +191,89 @@ export class MetaOAuthService implements OnModuleInit {
     accountType?: string;
   } | null> {
     if (!pageToken) {
-      this.logger.error(`[getInstagramAccount] Page token is null/empty for page ${pageId} — skipping IG discovery`);
+      this.logger.error(`[getInstagramAccount] Page token is null/empty for page ${pageId} — skipping`);
       return null;
     }
-    this.logger.log(`[getInstagramAccount] Querying page ${pageId} with token: ${pageToken.slice(0, 8)}...`);
 
+    this.logger.log(
+      `[getInstagramAccount] page=${pageId}, hintIgBizId=${hintIgBizId || 'none'}, hintIgConnId=${hintIgConnId || 'none'}, token=${pageToken.slice(0, 8)}...`,
+    );
+
+    // Strategy 1: we already know the IG ID from the /me/accounts response
+    const knownIgId = hintIgBizId || hintIgConnId;
+    if (knownIgId) {
+      this.logger.log(`[getInstagramAccount] Using pre-discovered IG id=${knownIgId} (${hintIgBizId ? 'business' : 'connected'})`);
+      const detail = await this.fetchInstagramDetails(knownIgId, pageToken);
+      if (detail) return detail;
+      this.logger.warn(`[getInstagramAccount] Direct fetch of ${knownIgId} failed — falling back to page query`);
+    }
+
+    // Strategy 2: query /{page-id} with both fields
     try {
       const url = `${this.BASE_URL}/${pageId}`;
-      this.logger.log(`[getInstagramAccount] GET ${url}?fields=instagram_business_account{...}`);
+      const fields = 'instagram_business_account{id,name,username,profile_picture_url,followers_count,account_type},connected_instagram_account{id,name,username,profile_picture_url,followers_count,account_type}';
+      this.logger.log(`[getInstagramAccount] GET ${url}?fields=${fields}`);
 
       const res = await axios.get(url, {
-        params: {
-          access_token: pageToken,
-          fields: 'instagram_business_account{id,name,username,profile_picture_url,followers_count,account_type}',
-        },
+        params: { access_token: pageToken, fields },
       });
 
-      this.logger.log(`[getInstagramAccount] Response keys: ${Object.keys(res.data).join(', ')}`);
-      const ig = res.data.instagram_business_account;
+      this.logger.log(`[getInstagramAccount] /${pageId} response keys: ${Object.keys(res.data).join(', ')}`);
+      this.logger.log(`[getInstagramAccount] Raw response: ${JSON.stringify(res.data)}`);
+
+      // Prefer instagram_business_account, fall back to connected_instagram_account
+      const ig = res.data.instagram_business_account || res.data.connected_instagram_account;
+      const igSource = res.data.instagram_business_account ? 'instagram_business_account' : 'connected_instagram_account';
+
       if (!ig) {
-        this.logger.log(`[getInstagramAccount] No instagram_business_account linked to page ${pageId}`);
+        this.logger.warn(
+          `[getInstagramAccount] No instagram_business_account or connected_instagram_account for page ${pageId}. ` +
+          `This page may not have an Instagram account linked, or the app may lack instagram_manage_accounts permission.`,
+        );
         return null;
       }
 
-      this.logger.log(`[getInstagramAccount] Found IG: id=${ig.id}, username=${ig.username}, followers=${ig.followers_count}`);
+      this.logger.log(
+        `[getInstagramAccount] Found via ${igSource}: id=${ig.id}, username=${ig.username}, followers=${ig.followers_count}, account_type=${ig.account_type}`,
+      );
+
       return {
         id: ig.id,
-        name: ig.name,
+        name: ig.name || ig.username || pageId,
         username: ig.username,
         pictureUrl: ig.profile_picture_url,
         followersCount: ig.followers_count,
         accountType: ig.account_type,
       };
     } catch (err: any) {
-      const errMsg = err?.response?.data ? JSON.stringify(err.response.data) : err.message;
-      this.logger.error(`[getInstagramAccount] Failed for page ${pageId}: ${errMsg}`);
+      const errData = err?.response?.data ? JSON.stringify(err.response.data) : err.message;
+      this.logger.error(`[getInstagramAccount] Page query failed for ${pageId}: ${errData}`);
+      return null;
+    }
+  }
+
+  // Fetch full Instagram account details by IG account ID
+  private async fetchInstagramDetails(igId: string, token: string) {
+    try {
+      const res = await axios.get(`${this.BASE_URL}/${igId}`, {
+        params: {
+          access_token: token,
+          fields: 'id,name,username,profile_picture_url,followers_count,account_type',
+        },
+      });
+      const ig = res.data;
+      this.logger.log(`[fetchInstagramDetails] id=${ig.id}, username=${ig.username}, followers=${ig.followers_count}`);
+      return {
+        id: ig.id,
+        name: ig.name || ig.username || igId,
+        username: ig.username,
+        pictureUrl: ig.profile_picture_url,
+        followersCount: ig.followers_count,
+        accountType: ig.account_type,
+      };
+    } catch (err: any) {
+      const errData = err?.response?.data ? JSON.stringify(err.response.data) : err.message;
+      this.logger.error(`[fetchInstagramDetails] Failed for IG id=${igId}: ${errData}`);
       return null;
     }
   }

@@ -40,19 +40,27 @@ export class IntegrationService {
   async handleMetaCallback(code: string, state: string) {
     const { organizationId } = await this.consumeOAuthState(state, 'meta');
 
-    this.logger.log(`[Meta Callback] org=${organizationId} code=${code.slice(0,10)}...`);
+    this.logger.log(`[Meta Callback] ===== START org=${organizationId} =====`);
 
-    // Exchange code for user token
+    // 1. Exchange code for user token
     const { accessToken, userId, name, permissions } = await this.metaOAuth.exchangeCode(code);
-    this.logger.log(`[Meta Callback] Got user token for: ${name} (${userId})`);
+    this.logger.log(`[Meta Callback] User token obtained for: ${name} (${userId})`);
+    this.logger.log(`[Meta Callback] Granted permissions: ${permissions.join(', ')}`);
 
-    // Get pages
+    // Warn if critical Instagram permissions are missing
+    const missingIg = ['instagram_basic', 'instagram_manage_accounts', 'pages_show_list']
+      .filter(p => !permissions.includes(p));
+    if (missingIg.length > 0) {
+      this.logger.warn(`[Meta Callback] WARNING: Missing permissions: ${missingIg.join(', ')} — Instagram discovery may fail`);
+    }
+
+    // 2. Get pages (now includes instagram_business_account and connected_instagram_account)
     const pages = await this.metaOAuth.getPages(accessToken);
-    this.logger.log(`[Meta Callback] Found ${pages.length} Facebook pages`);
+    this.logger.log(`[Meta Callback] Pages discovered: ${pages.length}`);
 
     const created: any[] = [];
 
-    // Always save the personal Facebook account first
+    // 3. Save personal Facebook account
     const personalFb = await this.upsertIntegration({
       organizationId,
       platform: 'FACEBOOK',
@@ -62,34 +70,68 @@ export class IntegrationService {
       profileData: JSON.stringify({ userId, type: 'personal', permissions }),
     });
     created.push(personalFb);
-    this.logger.log(`[Meta Callback] Saved personal Facebook account: ${name}`);
+    this.logger.log(`[Meta Callback] [DB] Saved personal Facebook: id=${personalFb.id}, internalId=${userId}`);
 
+    // 4. Process each Facebook Page
     for (const page of pages) {
-      this.logger.log(`[Meta Callback] Processing page: ${page.name} (${page.id})`);
+      this.logger.log(
+        `[Meta Callback] Processing page: "${page.name}" (${page.id}), ` +
+        `hasToken=${!!page.accessToken}, ` +
+        `igBizId=${(page as any).instagramBusinessAccountId || 'NONE'}, ` +
+        `igConnId=${(page as any).connectedInstagramAccountId || 'NONE'}`,
+      );
 
-      // Save Facebook Page integration (overrides personal if same ID)
-      const fbIntegration = await this.upsertIntegration({
-        organizationId,
-        platform: 'FACEBOOK',
-        internalId: page.id,
-        name: page.name,
-        pictureUrl: page.pictureUrl,
-        accessToken: page.accessToken,
-        pageId: page.id,
-        pageAccessToken: page.accessToken,
-        profileData: JSON.stringify({ category: page.category, permissions }),
-      });
-      created.push(fbIntegration);
+      // Save Facebook Page
+      let fbIntegration: any;
+      try {
+        fbIntegration = await this.upsertIntegration({
+          organizationId,
+          platform: 'FACEBOOK',
+          internalId: page.id,
+          name: page.name,
+          pictureUrl: page.pictureUrl,
+          accessToken: page.accessToken,
+          pageId: page.id,
+          pageAccessToken: page.accessToken,
+          profileData: JSON.stringify({ category: page.category, permissions }),
+        });
+        created.push(fbIntegration);
+        this.logger.log(`[Meta Callback] [DB] Saved Facebook Page: id=${fbIntegration.id}, internalId=${page.id}`);
+      } catch (err: any) {
+        this.logger.error(`[Meta Callback] [DB ERROR] Failed to save Facebook page ${page.id}: ${err.message}`);
+      }
 
-      // Check for linked Instagram account
-      const igAccount = await this.metaOAuth.getInstagramAccount(page.id, page.accessToken);
-      if (igAccount) {
-        this.logger.log(`[Meta Callback] Found Instagram: ${igAccount.username}`);
+      // 5. Discover Instagram account for this page
+      this.logger.log(`[Meta Callback] Attempting Instagram discovery for page ${page.id}...`);
+      let igAccount: any = null;
+      try {
+        igAccount = await this.metaOAuth.getInstagramAccount(
+          page.id,
+          page.accessToken,
+          (page as any).instagramBusinessAccountId,
+          (page as any).connectedInstagramAccountId,
+        );
+      } catch (err: any) {
+        this.logger.error(`[Meta Callback] getInstagramAccount threw for page ${page.id}: ${err.message}`);
+      }
+
+      if (!igAccount) {
+        this.logger.log(`[Meta Callback] No Instagram account found for page ${page.id} ("${page.name}") — skipping IG insert`);
+        continue;
+      }
+
+      this.logger.log(
+        `[Meta Callback] Instagram found: id=${igAccount.id}, username=${igAccount.username}, ` +
+        `name="${igAccount.name}", followers=${igAccount.followersCount}, type=${igAccount.accountType}`,
+      );
+
+      // 6. Save Instagram integration
+      try {
         const igIntegration = await this.upsertIntegration({
           organizationId,
           platform: 'INSTAGRAM',
           internalId: igAccount.id,
-          name: igAccount.name || igAccount.username,
+          name: igAccount.name || igAccount.username || `Instagram (${page.name})`,
           pictureUrl: igAccount.pictureUrl,
           accessToken: page.accessToken,
           pageId: page.id,
@@ -98,17 +140,39 @@ export class IntegrationService {
             username: igAccount.username,
             followersCount: igAccount.followersCount,
             accountType: igAccount.accountType,
+            linkedPageId: page.id,
+            linkedPageName: page.name,
             permissions,
           }),
         });
         created.push(igIntegration);
+        this.logger.log(
+          `[Meta Callback] [DB] Saved Instagram: id=${igIntegration.id}, internalId=${igAccount.id}, username=${igAccount.username}`,
+        );
+      } catch (err: any) {
+        this.logger.error(
+          `[Meta Callback] [DB ERROR] Failed to save Instagram account ${igAccount.id} (${igAccount.username}): ${err.message}\n${err.stack}`,
+        );
       }
     }
 
-    // Update usage limits
-    await this.updateAccountCount(organizationId);
+    // 7. Summary
+    const fbCount = created.filter(i => i.platform === 'FACEBOOK').length;
+    const igCount = created.filter(i => i.platform === 'INSTAGRAM').length;
+    this.logger.log(
+      `[Meta Callback] ===== COMPLETE: ${created.length} integrations saved — FB=${fbCount}, IG=${igCount} =====`,
+    );
 
-    this.logger.log(`[Meta Callback] Saved ${created.length} integrations`);
+    if (igCount === 0 && pages.length > 0) {
+      this.logger.warn(
+        `[Meta Callback] WARNING: ${pages.length} Facebook page(s) found but 0 Instagram accounts discovered. ` +
+        `Check: 1) Is Instagram connected to the page in Facebook Business Settings? ` +
+        `2) Is the Facebook App in instagram_basic / instagram_manage_accounts scope? ` +
+        `3) Check logs above for raw API responses.`,
+      );
+    }
+
+    await this.updateAccountCount(organizationId);
     return created.map((i) => this.sanitizeIntegration(i));
   }
 
