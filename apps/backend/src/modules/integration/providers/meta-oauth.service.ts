@@ -63,7 +63,6 @@ export class MetaOAuthService implements OnModuleInit {
         'pages_read_engagement',
         'pages_manage_posts',
         'instagram_basic',
-        'instagram_manage_accounts',
         'instagram_content_publish',
         'instagram_manage_insights',
         'instagram_manage_comments',
@@ -228,7 +227,7 @@ export class MetaOAuthService implements OnModuleInit {
       if (!ig) {
         this.logger.warn(
           `[getInstagramAccount] No instagram_business_account or connected_instagram_account for page ${pageId}. ` +
-          `This page may not have an Instagram account linked, or the app may lack instagram_manage_accounts permission.`,
+          `This page may not have an Instagram account linked, or the app may lack instagram_basic permission.`,
         );
         return null;
       }

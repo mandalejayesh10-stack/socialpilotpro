@@ -48,7 +48,7 @@ export class IntegrationService {
     this.logger.log(`[Meta Callback] Granted permissions: ${permissions.join(', ')}`);
 
     // Warn if critical Instagram permissions are missing
-    const missingIg = ['instagram_basic', 'instagram_manage_accounts', 'pages_show_list']
+    const missingIg = ['instagram_basic', 'pages_show_list']
       .filter(p => !permissions.includes(p));
     if (missingIg.length > 0) {
       this.logger.warn(`[Meta Callback] WARNING: Missing permissions: ${missingIg.join(', ')} — Instagram discovery may fail`);
@@ -167,7 +167,7 @@ export class IntegrationService {
       this.logger.warn(
         `[Meta Callback] WARNING: ${pages.length} Facebook page(s) found but 0 Instagram accounts discovered. ` +
         `Check: 1) Is Instagram connected to the page in Facebook Business Settings? ` +
-        `2) Is the Facebook App in instagram_basic / instagram_manage_accounts scope? ` +
+        `2) Is the Facebook App in instagram_basic scope? ` +
         `3) Check logs above for raw API responses.`,
       );
     }
