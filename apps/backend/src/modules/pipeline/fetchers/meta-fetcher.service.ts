@@ -129,7 +129,7 @@ ${JSON.stringify(responseData, null, 2)}`;
             params: {
               access_token: token,
               fields: isDirect
-                ? 'id,username,media_count,account_type'
+                ? 'id,username,followers_count,follows_count,media_count,name,profile_picture_url,biography,website'
                 : 'followers_count,follows_count,media_count,name,username,profile_picture_url,biography,website',
             },
           });
@@ -138,11 +138,11 @@ ${JSON.stringify(responseData, null, 2)}`;
           this.handleFailedInstagramApiCall(
             err,
             'fetchBasicStats',
-            `${BASE_URL}/${accountId}?fields=${isDirect ? 'id,username,media_count,account_type' : 'followers_count,follows_count,media_count,name,username,profile_picture_url,biography,website'}`,
+            `${BASE_URL}/${accountId}?fields=${isDirect ? 'id,username,followers_count,follows_count,media_count,name,profile_picture_url,biography,website' : 'followers_count,follows_count,media_count,name,username,profile_picture_url,biography,website'}`,
             accountId,
             token,
             {
-              fields: isDirect ? 'id,username,media_count,account_type' : 'followers_count,follows_count,media_count,name,username,profile_picture_url,biography,website',
+              fields: isDirect ? 'id,username,followers_count,follows_count,media_count,name,profile_picture_url,biography,website' : 'followers_count,follows_count,media_count,name,username,profile_picture_url,biography,website',
             }
           );
         }

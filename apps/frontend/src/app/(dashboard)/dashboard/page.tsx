@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { useOverview } from '@/lib/hooks';
 import { MetricCard } from '@/components/ui/metric-card';
 import { ChartCard } from '@/components/ui/chart-card';
-import { PeriodSelector, Period } from '@/components/ui/period-selector';
 import { SkeletonCard, SkeletonChart } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Button } from '@/components/ui/button';
@@ -18,11 +17,20 @@ import {
 import clsx from 'clsx';
 import Link from 'next/link';
 import { ViralScoreWidget } from '@/components/analytics/viral-score-widget';
+import dayjs from 'dayjs';
+import { DateRangePicker, DateRange } from '@/components/ui/date-range-picker';
 
 export default function DashboardPage() {
-  const [period, setPeriod] = useState<Period>('30d');
+  const [dateRange, setDateRange] = useState<DateRange>({
+    startDate: dayjs().subtract(29, 'days').toDate(),
+    endDate: dayjs().toDate(),
+  });
   const [showComposer, setShowComposer] = useState(false);
-  const { data, isLoading } = useOverview(period);
+
+  const diffDays = dayjs(dateRange.endDate).diff(dayjs(dateRange.startDate), 'day') + 1;
+  const backendPeriod = diffDays <= 7 ? '7d' : diffDays <= 30 ? '30d' : '90d';
+
+  const { data, isLoading } = useOverview(backendPeriod);
   const { currentOrg, user } = useAppStore();
 
   const ig = data?.instagram;
@@ -35,7 +43,24 @@ export default function DashboardPage() {
   const avgEngagement = platforms.length > 0
     ? platforms.reduce((s, p) => s + (p?.avgEngagementRate || 0), 0) / platforms.length
     : 0;
-  const totalReach = (ig?.totalReach || 0) + (fb?.totalReach || 0) + (yt?.totalReach || 0);
+
+  const getTimeline = (timelineData: any) => {
+    const list = Array.isArray(timelineData) ? timelineData : (() => { try { return JSON.parse(timelineData || '[]'); } catch { return []; } })();
+    return list.filter((d: any) => {
+      const date = dayjs(d.date);
+      return date.isAfter(dayjs(dateRange.startDate).subtract(1, 'day'), 'day') &&
+             date.isBefore(dayjs(dateRange.endDate).add(1, 'day'), 'day');
+    });
+  };
+
+  const igFilteredReach = getTimeline(ig?.reachTimeline);
+  const fbFilteredReach = getTimeline(fb?.reachTimeline);
+  const ytFilteredReach = getTimeline(yt?.reachTimeline);
+
+  const totalReach = igFilteredReach.reduce((s, d) => s + (d.value || 0), 0) +
+                     fbFilteredReach.reduce((s, d) => s + (d.value || 0), 0) +
+                     ytFilteredReach.reduce((s, d) => s + (d.value || 0), 0);
+
   const totalPosts = (ig?.totalPosts || 0) + (fb?.totalPosts || 0) + (yt?.totalPosts || 0);
 
   const combinedTimeline = (() => {
@@ -51,7 +76,14 @@ export default function DashboardPage() {
     if (ig) add(safeParse(ig.followerTimeline), 'instagram');
     if (fb) add(safeParse(fb.followerTimeline), 'facebook');
     if (yt) add(safeParse(yt.followerTimeline), 'youtube');
-    return Object.values(map).sort((a: any, b: any) => a.date.localeCompare(b.date));
+    
+    return Object.values(map)
+      .sort((a: any, b: any) => a.date.localeCompare(b.date))
+      .filter((d: any) => {
+        const date = dayjs(d.date);
+        return date.isAfter(dayjs(dateRange.startDate).subtract(1, 'day'), 'day') &&
+               date.isBefore(dayjs(dateRange.endDate).add(1, 'day'), 'day');
+      });
   })();
 
   const hour = new Date().getHours();
@@ -70,7 +102,7 @@ export default function DashboardPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <PeriodSelector value={period} onChange={setPeriod} />
+          <DateRangePicker value={dateRange} onChange={setDateRange} />
           <Button icon={<Plus size={15} />} onClick={() => setShowComposer(true)}>
             New Post
           </Button>
@@ -150,7 +182,7 @@ export default function DashboardPage() {
             <>
               <MetricCard label="Total Followers" value={totalFollowers} icon={<Users size={16} />} color="brand" />
               <MetricCard label="Avg Engagement" value={`${avgEngagement.toFixed(2)}%`} icon={<Heart size={16} />} color="instagram" />
-              <MetricCard label="Total Reach" value={totalReach} icon={<Eye size={16} />} color="facebook" />
+              <MetricCard label="Total Reach (Selected Range)" value={totalReach} icon={<Eye size={16} />} color="facebook" />
               <MetricCard label="Posts Published" value={totalPosts} icon={<TrendingUp size={16} />} color="youtube" />
             </>
           )}
@@ -179,7 +211,7 @@ export default function DashboardPage() {
                 <ChartCard
                   title="Engagement Rate"
                   subtitle="Instagram daily average"
-                  data={ig ? (Array.isArray(ig.engagementTimeline) ? ig.engagementTimeline : (() => { try { return JSON.parse(ig.engagementTimeline || '[]'); } catch { return []; } })()) : []}
+                  data={ig ? getTimeline(ig.engagementTimeline) : []}
                   type="line"
                   dataKeys={[{ key: 'value', color: '#6366f1', label: 'Engagement %' }]}
                 />
@@ -190,11 +222,11 @@ export default function DashboardPage() {
           {/* Viral Score Widget */}
           {!isLoading && <ViralScoreWidget />}
 
-          {!isLoading && ig && (Array.isArray(ig.reachTimeline) ? ig.reachTimeline : (() => { try { return JSON.parse(ig.reachTimeline || '[]'); } catch { return []; } })()).length > 0 && (
+          {!isLoading && ig && getTimeline(ig.reachTimeline).length > 0 && (
             <ChartCard
               title="Reach Over Time"
               subtitle="Total audience reached per day"
-              data={Array.isArray(ig.reachTimeline) ? ig.reachTimeline : (() => { try { return JSON.parse(ig.reachTimeline || '[]'); } catch { return []; } })()}
+              data={getTimeline(ig.reachTimeline)}
               type="bar"
               dataKeys={[{ key: 'value', color: '#6366f1', label: 'Reach' }]}
               height={200}

@@ -11,6 +11,7 @@ import { DemographicsPanel } from '@/components/analytics/demographics-panel';
 import clsx from 'clsx';
 import dayjs from 'dayjs';
 import { Instagram, RefreshCw, Download, Users, Eye, Heart, MessageSquare, Bookmark, ExternalLink, TrendingUp } from 'lucide-react';
+import { DateRangePicker, DateRange } from '@/components/ui/date-range-picker';
 
 function fmt(n: number): string {
   if (!n) return '0';
@@ -50,7 +51,16 @@ export default function InstagramAnalyticsPage() {
   const [postTotal, setPostTotal] = useState(0);
   const [postPage, setPostPage] = useState(1);
   const [activeTab, setActiveTab] = useState<'overview' | 'posts' | 'reels'>('overview');
-  const { data: demographics, isLoading: loadingDemographics } = useDemographics('INSTAGRAM', '30d');
+  
+  const [dateRange, setDateRange] = useState<DateRange>({
+    startDate: dayjs().subtract(29, 'days').toDate(),
+    endDate: dayjs().toDate(),
+  });
+
+  const diffDays = dayjs(dateRange.endDate).diff(dayjs(dateRange.startDate), 'day') + 1;
+  const backendPeriod = diffDays <= 7 ? '7d' : diffDays <= 30 ? '30d' : '90d';
+
+  const { data: demographics, isLoading: loadingDemographics } = useDemographics('INSTAGRAM', backendPeriod);
 
   const loadStats = async () => {
     if (!orgId) return;
@@ -87,10 +97,16 @@ export default function InstagramAnalyticsPage() {
     } finally { setSyncing(false); }
   };
 
+  const filteredPosts = posts.filter((p) => {
+    const date = dayjs(p.timestamp);
+    return date.isAfter(dayjs(dateRange.startDate).subtract(1, 'day'), 'day') &&
+           date.isBefore(dayjs(dateRange.endDate).add(1, 'day'), 'day');
+  });
+
   const exportCSV = () => {
-    if (!posts.length) return;
+    if (!filteredPosts.length) return;
     const rows = [['Caption', 'Type', 'Date', 'Likes', 'Comments', 'Reach', 'Impressions', 'Saved'],
-      ...posts.map((p) => [`"${(p.caption || '').replace(/"/g, '').slice(0, 100)}"`,
+      ...filteredPosts.map((p) => [`"${(p.caption || '').replace(/"/g, '').slice(0, 100)}"`,
         p.mediaType, dayjs(p.timestamp).format('YYYY-MM-DD'), p.likes, p.comments, p.reach, p.impressions, p.saved])];
     const blob = new Blob([rows.map((r) => r.join(',')).join('\n')], { type: 'text/csv' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
@@ -101,9 +117,6 @@ export default function InstagramAnalyticsPage() {
   const totalFollowers = stats.reduce((s, c) => s + (c.followers || 0), 0);
   const totalFollowing = stats.reduce((s, c) => s + (c.following || 0), 0);
   const totalMedia = stats.reduce((s, c) => s + (c.mediaCount || 0), 0);
-  const totalReach = stats.reduce((s, c) => s + (c.totalReach || 0), 0);
-  const totalImpressions = stats.reduce((s, c) => s + (c.totalImpressions || 0), 0);
-  const totalProfileViews = stats.reduce((s, c) => s + (c.totalProfileViews || 0), 0);
 
   // Build chart data
   const dailyMap: Record<string, any> = {};
@@ -118,9 +131,19 @@ export default function InstagramAnalyticsPage() {
   }
   const chartData = Object.values(dailyMap).sort((a: any, b: any) => a.date.localeCompare(b.date));
 
+  const filteredChartData = chartData.filter((d: any) => {
+    const date = dayjs(d.date);
+    return date.isAfter(dayjs(dateRange.startDate).subtract(1, 'day'), 'day') &&
+           date.isBefore(dayjs(dateRange.endDate).add(1, 'day'), 'day');
+  });
+
+  const totalReach = filteredChartData.reduce((s, c) => s + (c.reach || 0), 0);
+  const totalImpressions = filteredChartData.reduce((s, c) => s + (c.impressions || 0), 0);
+  const totalProfileViews = filteredChartData.reduce((s, c) => s + (c.profileViews || 0), 0);
+
   // Filter posts by type for reels tab
-  const reels = posts.filter((p) => p.mediaType === 'VIDEO' || p.mediaType === 'REELS');
-  const displayPosts = activeTab === 'reels' ? reels : posts;
+  const reels = filteredPosts.filter((p) => p.mediaType === 'VIDEO' || p.mediaType === 'REELS');
+  const displayPosts = activeTab === 'reels' ? reels : filteredPosts;
 
   if (!loading && !stats.length) {
     return (
@@ -130,7 +153,10 @@ export default function InstagramAnalyticsPage() {
             <div className="w-9 h-9 rounded-xl bg-pink-500/20 flex items-center justify-center text-pink-400"><Instagram size={18} /></div>
             <div><h1 className="text-xl font-bold text-text-primary">Instagram</h1><p className="text-sm text-text-muted">Analytics overview</p></div>
           </div>
-          <Button variant="secondary" size="sm" icon={<RefreshCw size={13} className={syncing ? 'animate-spin' : ''} />} loading={syncing} onClick={handleSync}>Sync Now</Button>
+          <div className="flex items-center gap-3">
+            <DateRangePicker value={dateRange} onChange={setDateRange} />
+            <Button variant="secondary" size="sm" icon={<RefreshCw size={13} className={syncing ? 'animate-spin' : ''} />} loading={syncing} onClick={handleSync}>Sync Now</Button>
+          </div>
         </div>
         <EmptyState icon={<Instagram size={24} />} title="No Instagram data yet"
           description="Connect your Instagram Business account and click Sync Now to fetch real analytics."
@@ -152,7 +178,10 @@ export default function InstagramAnalyticsPage() {
             </p>
           </div>
         </div>
-        <Button variant="secondary" size="sm" icon={<RefreshCw size={13} className={syncing ? 'animate-spin' : ''} />} loading={syncing} onClick={handleSync}>Sync</Button>
+        <div className="flex items-center gap-3">
+          <DateRangePicker value={dateRange} onChange={setDateRange} />
+          <Button variant="secondary" size="sm" icon={<RefreshCw size={13} className={syncing ? 'animate-spin' : ''} />} loading={syncing} onClick={handleSync}>Sync</Button>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -188,16 +217,16 @@ export default function InstagramAnalyticsPage() {
 
           {/* Metric cards */}
           <div className="grid grid-cols-3 gap-4">
-            <StatCard label="Total Reach (30d)" value={totalReach} color="bg-pink-500/15 text-pink-300" icon={<Eye size={16} />} />
-            <StatCard label="Impressions (30d)" value={totalImpressions} color="bg-purple-500/15 text-purple-300" icon={<TrendingUp size={16} />} />
-            <StatCard label="Profile Views (30d)" value={totalProfileViews} color="bg-blue-500/15 text-blue-300" icon={<Users size={16} />} />
+            <StatCard label="Total Reach (Selected Range)" value={totalReach} color="bg-pink-500/15 text-pink-300" icon={<Eye size={16} />} />
+            <StatCard label="Impressions (Selected Range)" value={totalImpressions} color="bg-purple-500/15 text-purple-300" icon={<TrendingUp size={16} />} />
+            <StatCard label="Profile Views (Selected Range)" value={totalProfileViews} color="bg-blue-500/15 text-blue-300" icon={<Users size={16} />} />
           </div>
 
           {/* Followers growth */}
           <div className="bg-surface-card border border-surface-border rounded-2xl p-5">
             <h3 className="text-sm font-semibold text-text-primary mb-4">Followers Growth</h3>
-            {chartData.length > 0 ? (
-              <ChartCard title="" data={chartData} type="line" dataKeys={[{ key: 'followers', color: '#ec4899', label: 'Followers' }]} xKey="date" height={220} />
+            {filteredChartData.length > 0 ? (
+              <ChartCard title="" data={filteredChartData} type="line" dataKeys={[{ key: 'followers', color: '#ec4899', label: 'Followers' }]} xKey="date" height={220} />
             ) : (
               <div className="h-48 flex items-center justify-center">
                 <button onClick={handleSync} className="text-sm text-brand-400 hover:text-brand-300">Click Sync to fetch real data →</button>
@@ -206,15 +235,15 @@ export default function InstagramAnalyticsPage() {
           </div>
 
           {/* Reach + Impressions */}
-          {chartData.length > 0 && (
+          {filteredChartData.length > 0 && (
             <div className="grid grid-cols-2 gap-4">
               <div className="bg-surface-card border border-surface-border rounded-2xl p-5">
                 <h3 className="text-sm font-semibold text-text-primary mb-4">Daily Reach</h3>
-                <ChartCard title="" data={chartData} type="bar" dataKeys={[{ key: 'reach', color: '#ec4899', label: 'Reach' }]} xKey="date" height={180} />
+                <ChartCard title="" data={filteredChartData} type="bar" dataKeys={[{ key: 'reach', color: '#ec4899', label: 'Reach' }]} xKey="date" height={180} />
               </div>
               <div className="bg-surface-card border border-surface-border rounded-2xl p-5">
                 <h3 className="text-sm font-semibold text-text-primary mb-4">Profile Views</h3>
-                <ChartCard title="" data={chartData} type="bar" dataKeys={[{ key: 'profileViews', color: '#a855f7', label: 'Profile Views' }]} xKey="date" height={180} />
+                <ChartCard title="" data={filteredChartData} type="bar" dataKeys={[{ key: 'profileViews', color: '#a855f7', label: 'Profile Views' }]} xKey="date" height={180} />
               </div>
             </div>
           )}
@@ -227,7 +256,7 @@ export default function InstagramAnalyticsPage() {
       {(activeTab === 'posts' || activeTab === 'reels') && (
         <div className="space-y-4">
           <div className="flex justify-end">
-            <Button variant="secondary" size="sm" icon={<Download size={13} />} onClick={exportCSV} disabled={!posts.length}>Download CSV</Button>
+            <Button variant="secondary" size="sm" icon={<Download size={13} />} onClick={exportCSV} disabled={!filteredPosts.length}>Download CSV</Button>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">

@@ -1,11 +1,10 @@
-﻿"use client";
+"use client";
 
 import { useState, useEffect } from "react";
 import { useDemographics, useOrgId } from "@/lib/hooks";
 import { analyticsApi } from "@/lib/api";
 import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
-import { PeriodSelector, Period } from "@/components/ui/period-selector";
 import { ChartCard } from "@/components/ui/chart-card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { DemographicsPanel } from "@/components/analytics/demographics-panel";
@@ -16,6 +15,7 @@ import {
   Eye, ThumbsUp, MessageSquare, Share2, Clock,
   TrendingUp, TrendingDown, Minus, ExternalLink,
 } from "lucide-react";
+import { DateRangePicker, DateRange } from "@/components/ui/date-range-picker";
 
 // ── Metric card ───────────────────────────────────────────────
 function StatCard({ label, value, color, icon }: {
@@ -53,7 +53,6 @@ function formatDuration(iso: string): string {
 export default function YouTubeAnalyticsPage() {
   const orgId = useOrgId();
   const toast = useToast();
-  const [period, setPeriod] = useState<Period>("30d");
   const [syncing, setSyncing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<any[]>([]);
@@ -64,7 +63,16 @@ export default function YouTubeAnalyticsPage() {
   const [videoTotal, setVideoTotal] = useState(0);
   const [loadingVideos, setLoadingVideos] = useState(false);
   const [activeTab, setActiveTab] = useState<"growth" | "balance" | "videos" | "list">("growth");
-  const { data: demographics, isLoading: loadingDemographics } = useDemographics("YOUTUBE", period);
+
+  const [dateRange, setDateRange] = useState<DateRange>({
+    startDate: dayjs().subtract(29, 'days').toDate(),
+    endDate: dayjs().toDate(),
+  });
+
+  const diffDays = dayjs(dateRange.endDate).diff(dayjs(dateRange.startDate), 'day') + 1;
+  const backendPeriod = diffDays <= 7 ? "7d" : diffDays <= 30 ? "30d" : "90d";
+
+  const { data: demographics, isLoading: loadingDemographics } = useDemographics("YOUTUBE", backendPeriod);
 
   // ── Load data ─────────────────────────────────────────────
   const loadData = async () => {
@@ -73,7 +81,7 @@ export default function YouTubeAnalyticsPage() {
     try {
       const [statsData, summaryData] = await Promise.all([
         analyticsApi.youtubeStats(orgId),
-        analyticsApi.platform(orgId, "youtube", period),
+        analyticsApi.platform(orgId, "youtube", backendPeriod),
       ]);
       setStats(statsData || []);
       setSummary(summaryData?.summary || null);
@@ -102,7 +110,7 @@ export default function YouTubeAnalyticsPage() {
     }
   };
 
-  useEffect(() => { loadData(); }, [orgId, period]);
+  useEffect(() => { loadData(); }, [orgId, backendPeriod]);
   useEffect(() => { if (activeTab === "list") loadVideos(); }, [activeTab, orgId, videoSearch, videoPage]);
 
   // ── Force sync ────────────────────────────────────────────
@@ -121,11 +129,17 @@ export default function YouTubeAnalyticsPage() {
     }
   };
 
+  const filteredVideos = videos.filter((v) => {
+    const date = dayjs(v.publishedAt);
+    return date.isAfter(dayjs(dateRange.startDate).subtract(1, 'day'), 'day') &&
+           date.isBefore(dayjs(dateRange.endDate).add(1, 'day'), 'day');
+  });
+
   // ── CSV export ────────────────────────────────────────────
   const exportCSV = () => {
-    if (!videos.length) return;
+    if (!filteredVideos.length) return;
     const headers = ["Title", "Published", "Views", "Likes", "Comments", "Duration"];
-    const rows = videos.map((v) => [
+    const rows = filteredVideos.map((v) => [
       `"${v.title?.replace(/"/g, "")}"`,
       dayjs(v.publishedAt).format("YYYY-MM-DD"),
       v.views,
@@ -144,14 +158,7 @@ export default function YouTubeAnalyticsPage() {
 
   // ── Aggregate stats ───────────────────────────────────────
   const totalSubscribers = stats.reduce((s, c) => s + (c.subscribers || 0), 0);
-  const totalViews = stats.reduce((s, c) => s + (c.totalViews || 0), 0);
   const totalVideos = stats.reduce((s, c) => s + (c.videoCount || 0), 0);
-  const subsGained = stats.reduce((s, c) => s + (c.subsGained || 0), 0);
-  const subsLost = stats.reduce((s, c) => s + (c.subsLost || 0), 0);
-  const periodViews = stats.reduce((s, c) => s + (c.totalViews || 0), 0);
-  const periodLikes = stats.reduce((s, c) => s + (c.totalLikes || 0), 0);
-  const periodComments = stats.reduce((s, c) => s + (c.totalComments || 0), 0);
-  const periodShares = stats.reduce((s, c) => s + (c.totalShares || 0), 0);
   const watchTime = stats.reduce((s, c) => s + (c.totalWatchTime || 0), 0);
   const avgRetention = stats.length ? stats.reduce((s, c) => s + (c.avgRetention || 0), 0) / stats.length : 0;
   const avgCtr = stats.length ? stats.reduce((s, c) => s + (c.avgCtr || 0), 0) / stats.length : 0;
@@ -160,6 +167,18 @@ export default function YouTubeAnalyticsPage() {
   const sp = (v: any) => Array.isArray(v) ? v : (typeof v === "string" ? (() => { try { return JSON.parse(v || "[]"); } catch { return []; } })() : []);
   const followerTimeline = sp(summary?.followerTimeline);
   const reachTimeline = sp(summary?.reachTimeline);
+
+  const filteredFollowerTimeline = followerTimeline.filter((d: any) => {
+    const date = dayjs(d.date);
+    return date.isAfter(dayjs(dateRange.startDate).subtract(1, 'day'), 'day') &&
+           date.isBefore(dayjs(dateRange.endDate).add(1, 'day'), 'day');
+  });
+
+  const filteredReachTimeline = reachTimeline.filter((d: any) => {
+    const date = dayjs(d.date);
+    return date.isAfter(dayjs(dateRange.startDate).subtract(1, 'day'), 'day') &&
+           date.isBefore(dayjs(dateRange.endDate).add(1, 'day'), 'day');
+  });
 
   // Build subscriber balance chart from analytics rows
   const balanceData = stats.flatMap((c) =>
@@ -171,6 +190,15 @@ export default function YouTubeAnalyticsPage() {
     }))
   ).sort((a, b) => a.date.localeCompare(b.date));
 
+  const filteredBalanceData = balanceData.filter((d: any) => {
+    const date = dayjs(d.date);
+    return date.isAfter(dayjs(dateRange.startDate).subtract(1, 'day'), 'day') &&
+           date.isBefore(dayjs(dateRange.endDate).add(1, 'day'), 'day');
+  });
+
+  const subsGained = filteredBalanceData.reduce((s, c) => s + (c.gained || 0), 0);
+  const subsLost = filteredBalanceData.reduce((s, c) => s + (c.lost || 0), 0);
+
   const publishedData = stats.flatMap((c) =>
     (c.rows || []).map((row: any) => ({
       date: row[0],
@@ -180,6 +208,17 @@ export default function YouTubeAnalyticsPage() {
       shares: row[7] || 0,
     }))
   ).sort((a, b) => a.date.localeCompare(b.date));
+
+  const filteredPublishedData = publishedData.filter((d: any) => {
+    const date = dayjs(d.date);
+    return date.isAfter(dayjs(dateRange.startDate).subtract(1, 'day'), 'day') &&
+           date.isBefore(dayjs(dateRange.endDate).add(1, 'day'), 'day');
+  });
+
+  const periodViews = filteredPublishedData.reduce((s, c) => s + (c.views || 0), 0);
+  const periodLikes = filteredPublishedData.reduce((s, c) => s + (c.likes || 0), 0);
+  const periodComments = filteredPublishedData.reduce((s, c) => s + (c.comments || 0), 0);
+  const periodShares = filteredPublishedData.reduce((s, c) => s + (c.shares || 0), 0);
 
   const hasData = stats.length > 0 || summary;
 
@@ -196,15 +235,18 @@ export default function YouTubeAnalyticsPage() {
               <p className="text-sm text-text-muted">Analytics overview</p>
             </div>
           </div>
-          <Button
-            variant="secondary"
-            size="sm"
-            icon={<RefreshCw size={13} className={syncing ? "animate-spin" : ""} />}
-            loading={syncing}
-            onClick={handleSync}
-          >
-            Sync Now
-          </Button>
+          <div className="flex items-center gap-3">
+            <DateRangePicker value={dateRange} onChange={setDateRange} />
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<RefreshCw size={13} className={syncing ? "animate-spin" : ""} />}
+              loading={syncing}
+              onClick={handleSync}
+            >
+              Sync Now
+            </Button>
+          </div>
         </div>
         <EmptyState
           icon={<Youtube size={24} />}
@@ -232,7 +274,7 @@ export default function YouTubeAnalyticsPage() {
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <PeriodSelector value={period} onChange={setPeriod} />
+          <DateRangePicker value={dateRange} onChange={setDateRange} />
           <Button
             variant="secondary"
             size="sm"
@@ -272,7 +314,7 @@ export default function YouTubeAnalyticsPage() {
           {/* Metric cards */}
           <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
             <StatCard label="Subscribers" value={totalSubscribers} color="bg-purple-500/15 text-purple-300" icon={<Users size={16} />} />
-            <StatCard label="Video Views" value={periodViews} color="bg-green-500/15 text-green-300" icon={<Eye size={16} />} />
+            <StatCard label="Video Views (Selected Range)" value={periodViews} color="bg-green-500/15 text-green-300" icon={<Eye size={16} />} />
             <StatCard label="Watch Time (min)" value={watchTime} color="bg-pink-500/15 text-pink-300" icon={<Clock size={16} />} />
             <StatCard label="Videos" value={totalVideos} color="bg-amber-500/15 text-amber-300" icon={<Youtube size={16} />} />
             <StatCard label="Avg Retention" value={`${avgRetention.toFixed(1)}%`} color="bg-blue-500/15 text-blue-300" />
@@ -282,10 +324,10 @@ export default function YouTubeAnalyticsPage() {
           {/* Growth chart */}
           <div className="bg-surface-card border border-surface-border rounded-2xl p-5">
             <h3 className="text-sm font-semibold text-text-primary mb-4">Growth</h3>
-            {followerTimeline.length > 0 ? (
+            {filteredFollowerTimeline.length > 0 ? (
               <ChartCard
                 title=""
-                data={followerTimeline}
+                data={filteredFollowerTimeline}
                 type="line"
                 dataKeys={[{ key: "value", color: "#6366f1", label: "Subscribers" }]}
                 height={220}
@@ -303,12 +345,12 @@ export default function YouTubeAnalyticsPage() {
           </div>
 
           {/* Views chart */}
-          {reachTimeline.length > 0 && (
+          {filteredReachTimeline.length > 0 && (
             <div className="bg-surface-card border border-surface-border rounded-2xl p-5">
               <h3 className="text-sm font-semibold text-text-primary mb-4">Video Views</h3>
               <ChartCard
                 title=""
-                data={reachTimeline}
+                data={filteredReachTimeline}
                 type="bar"
                 dataKeys={[{ key: "value", color: "#ef4444", label: "Views" }]}
                 height={200}
@@ -331,10 +373,10 @@ export default function YouTubeAnalyticsPage() {
 
           <div className="bg-surface-card border border-surface-border rounded-2xl p-5">
             <h3 className="text-sm font-semibold text-text-primary mb-4">Balance of Subscribers</h3>
-            {balanceData.length > 0 ? (
+            {filteredBalanceData.length > 0 ? (
               <ChartCard
                 title=""
-                data={balanceData}
+                data={filteredBalanceData}
                 type="bar"
                 dataKeys={[
                   { key: "gained", color: "#22c55e", label: "Gained" },
@@ -366,10 +408,10 @@ export default function YouTubeAnalyticsPage() {
 
           <div className="bg-surface-card border border-surface-border rounded-2xl p-5">
             <h3 className="text-sm font-semibold text-text-primary mb-4">Published Videos Performance</h3>
-            {publishedData.length > 0 ? (
+            {filteredPublishedData.length > 0 ? (
               <ChartCard
                 title=""
-                data={publishedData}
+                data={filteredPublishedData}
                 type="bar"
                 dataKeys={[
                   { key: "views",    color: "#22c55e", label: "Views" },
@@ -407,7 +449,7 @@ export default function YouTubeAnalyticsPage() {
               size="sm"
               icon={<Download size={13} />}
               onClick={exportCSV}
-              disabled={!videos.length}
+              disabled={!filteredVideos.length}
             >
               Download CSV
             </Button>
@@ -437,7 +479,7 @@ export default function YouTubeAnalyticsPage() {
                       {[1,2,3,4,5,6].map(j => <td key={j} className="px-4 py-4"><div className="skeleton h-4 w-12 ml-auto" /></td>)}
                     </tr>
                   ))
-                ) : videos.length === 0 ? (
+                ) : filteredVideos.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="px-5 py-12 text-center">
                       <p className="text-sm text-text-muted">No videos found</p>
@@ -447,7 +489,7 @@ export default function YouTubeAnalyticsPage() {
                     </td>
                   </tr>
                 ) : (
-                  videos.map((video) => (
+                  filteredVideos.map((video) => (
                     <tr key={video.id} className="hover:bg-surface-hover/50 transition-colors">
                       <td className="px-5 py-3">
                         <div className="flex items-center gap-3">
