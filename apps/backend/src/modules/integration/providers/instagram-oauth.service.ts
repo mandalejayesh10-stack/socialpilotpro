@@ -11,11 +11,11 @@ export class InstagramOAuthService implements OnModuleInit {
   private configured = false;
 
   get INSTAGRAM_CLIENT_ID() {
-    return process.env.INSTAGRAM_CLIENT_ID || process.env.FACEBOOK_APP_ID;
+    return process.env.INSTAGRAM_CLIENT_ID;
   }
 
   get INSTAGRAM_CLIENT_SECRET() {
-    return process.env.INSTAGRAM_CLIENT_SECRET || process.env.FACEBOOK_APP_SECRET;
+    return process.env.INSTAGRAM_CLIENT_SECRET;
   }
 
   onModuleInit() {
@@ -43,7 +43,7 @@ export class InstagramOAuthService implements OnModuleInit {
   getAuthUrl(state: string): string {
     if (!this.isConfigured()) {
       throw new BadRequestException(
-        'Instagram Direct OAuth is not configured. Add INSTAGRAM_CLIENT_ID and INSTAGRAM_CLIENT_SECRET (or FACEBOOK_APP_ID/SECRET) to .env.',
+        'Instagram Direct OAuth is not configured. Add INSTAGRAM_CLIENT_ID and INSTAGRAM_CLIENT_SECRET to your .env file.',
       );
     }
 
