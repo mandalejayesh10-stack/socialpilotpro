@@ -48,14 +48,27 @@ export class InstagramOAuthService implements OnModuleInit {
     }
 
     const backendUrl = process.env.BACKEND_INTERNAL_URL || 'http://localhost:3000';
+    const clientId = this.INSTAGRAM_CLIENT_ID!;
+    const redirectUri = `${backendUrl}/api/integrations/instagram/callback`;
+    const scope = 'user_profile,user_media';
+    const responseType = 'code';
+
+    this.logger.log(`[Instagram Direct OAuth] Generating Auth URL:`);
+    this.logger.log(`  - client_id: ${clientId}`);
+    this.logger.log(`  - redirect_uri: ${redirectUri}`);
+    this.logger.log(`  - scope: ${scope}`);
+    this.logger.log(`  - response_type: ${responseType}`);
+
     const params = new URLSearchParams({
-      client_id: this.INSTAGRAM_CLIENT_ID!,
-      redirect_uri: `${backendUrl}/api/integrations/instagram/callback`,
-      scope: 'user_profile,user_media',
-      response_type: 'code',
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      scope,
+      response_type: responseType,
       state,
     });
-    return `https://api.instagram.com/oauth/authorize?${params.toString()}`;
+    const url = `https://api.instagram.com/oauth/authorize?${params.toString()}`;
+    this.logger.log(`  - full_url: ${url}`);
+    return url;
   }
 
   async exchangeCode(code: string): Promise<{
