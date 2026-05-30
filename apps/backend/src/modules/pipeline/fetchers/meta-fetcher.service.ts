@@ -120,12 +120,17 @@ ${JSON.stringify(responseData, null, 2)}`;
   // ── Basic stats (followers, profile info) ─────────────────
   async fetchBasicStats(platform: string, accountId: string, token: string) {
     if (platform === 'INSTAGRAM') {
+      const isDirect = token.startsWith('IGQ') || token.startsWith('IG');
+      const BASE_URL = isDirect ? 'https://graph.instagram.com' : BASE;
+
       return this.getCached(`ig:basic:${accountId}`, 5 * 60 * 1000, async () => {
         try {
-          const res = await axios.get(`${BASE}/${accountId}`, {
+          const res = await axios.get(`${BASE_URL}/${accountId}`, {
             params: {
               access_token: token,
-              fields: 'followers_count,follows_count,media_count,name,username,profile_picture_url,biography,website',
+              fields: isDirect
+                ? 'id,username,media_count,account_type'
+                : 'followers_count,follows_count,media_count,name,username,profile_picture_url,biography,website',
             },
           });
           return res.data;
@@ -133,11 +138,11 @@ ${JSON.stringify(responseData, null, 2)}`;
           this.handleFailedInstagramApiCall(
             err,
             'fetchBasicStats',
-            `${BASE}/${accountId}?fields=followers_count,follows_count,media_count,name,username,profile_picture_url,biography,website`,
+            `${BASE_URL}/${accountId}?fields=${isDirect ? 'id,username,media_count,account_type' : 'followers_count,follows_count,media_count,name,username,profile_picture_url,biography,website'}`,
             accountId,
             token,
             {
-              fields: 'followers_count,follows_count,media_count,name,username,profile_picture_url,biography,website',
+              fields: isDirect ? 'id,username,media_count,account_type' : 'followers_count,follows_count,media_count,name,username,profile_picture_url,biography,website',
             }
           );
         }
@@ -161,6 +166,10 @@ ${JSON.stringify(responseData, null, 2)}`;
 
   // ── Instagram post insights ───────────────────────────────
   async fetchPostInsights(mediaIds: string[], token: string) {
+    const isDirect = token.startsWith('IGQ') || token.startsWith('IG');
+    if (isDirect) {
+      return {};
+    }
     const results: Record<string, any> = {};
 
     // Batch in groups of 50
@@ -223,6 +232,10 @@ ${JSON.stringify(responseData, null, 2)}`;
 
   // ── Instagram account insights (daily) ───────────────────
   async fetchInstagramInsights(accountId: string, token: string) {
+    const isDirect = token.startsWith('IGQ') || token.startsWith('IG');
+    if (isDirect) {
+      return [];
+    }
     const since = Math.floor(Date.now() / 1000) - 30 * 24 * 60 * 60;
     const until = Math.floor(Date.now() / 1000);
 
@@ -274,9 +287,12 @@ ${JSON.stringify(responseData, null, 2)}`;
   }
 
   async fetchInstagramMedia(accountId: string, token: string) {
+    const isDirect = token.startsWith('IGQ') || token.startsWith('IG');
+    const BASE_URL = isDirect ? 'https://graph.instagram.com' : BASE;
+
     return this.getCached(`ig:media:${accountId}`, 10 * 60 * 1000, async () => {
       try {
-        const res = await axios.get(`${BASE}/${accountId}/media`, {
+        const res = await axios.get(`${BASE_URL}/${accountId}/media`, {
           params: {
             access_token: token,
             fields: 'id,caption,media_type,media_product_type,media_url,thumbnail_url,timestamp,like_count,comments_count,permalink',
@@ -288,7 +304,7 @@ ${JSON.stringify(responseData, null, 2)}`;
         this.handleFailedInstagramApiCall(
           err,
           'fetchInstagramMedia',
-          `${BASE}/${accountId}/media?fields=id,caption,media_type,media_product_type,media_url,thumbnail_url,timestamp,like_count,comments_count,permalink&limit=50`,
+          `${BASE_URL}/${accountId}/media?fields=id,caption,media_type,media_product_type,media_url,thumbnail_url,timestamp,like_count,comments_count,permalink&limit=50`,
           accountId,
           token,
           {

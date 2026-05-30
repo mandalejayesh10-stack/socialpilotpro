@@ -448,10 +448,9 @@ ${JSON.stringify(responseData, null, 2)}`;
     };
   }
 
-  // ── Instagram: fetch real data ────────────────────────────
   private async syncInstagram(integration: any, token: string) {
-    const META_VERSION = process.env.META_API_VERSION || "v21.0";
-    const BASE = `https://graph.facebook.com/${META_VERSION}`;
+    const isDirect = token.startsWith('IGQ') || token.startsWith('IG');
+    const BASE = isDirect ? `https://graph.instagram.com` : `https://graph.facebook.com/${process.env.META_API_VERSION || 'v21.0'}`;
     const accountId = integration.internalId;
 
     // 1. Account basic stats
@@ -460,18 +459,20 @@ ${JSON.stringify(responseData, null, 2)}`;
       profileRes = await axios.get(`${BASE}/${accountId}`, {
         params: {
           access_token: token,
-          fields: "followers_count,follows_count,media_count,name,username,profile_picture_url,biography,website",
+          fields: isDirect 
+            ? "id,username,media_count,account_type" 
+            : "followers_count,follows_count,media_count,name,username,profile_picture_url,biography,website",
         },
       });
     } catch (err: any) {
       this.handleFailedInstagramApiCall(
         err,
         'syncInstagram',
-        `${BASE}/${accountId}?fields=followers_count,follows_count,media_count,name,username,profile_picture_url,biography,website`,
+        `${BASE}/${accountId}?fields=${isDirect ? 'id,username,media_count,account_type' : 'followers_count,follows_count,media_count,name,username,profile_picture_url,biography,website'}`,
         accountId,
         token,
         {
-          fields: "followers_count,follows_count,media_count,name,username,profile_picture_url,biography,website",
+          fields: isDirect ? "id,username,media_count,account_type" : "followers_count,follows_count,media_count,name,username,profile_picture_url,biography,website",
         }
       );
     }
@@ -483,29 +484,31 @@ ${JSON.stringify(responseData, null, 2)}`;
     const until = Math.floor(Date.now() / 1000);
 
     let insightsData: any[] = [];
-    try {
-      const insightsRes = await axios.get(`${BASE}/${accountId}/insights`, {
-        params: {
-          access_token: token,
-          metric: "impressions,reach,follower_count,profile_views",
-          period: "day",
-          since,
-          until,
-        },
-      });
-      insightsData = insightsRes.data.data || [];
-    } catch (err: any) {
-      this.handleFailedInstagramApiCall(
-        err,
-        'syncInstagram',
-        `${BASE}/${accountId}/insights?metric=impressions,reach,follower_count,profile_views&period=day&since=${since}&until=${until}`,
-        accountId,
-        token,
-        {
-          metrics: "impressions,reach,follower_count,profile_views",
-          period: "day",
-        }
-      );
+    if (!isDirect) {
+      try {
+        const insightsRes = await axios.get(`${BASE}/${accountId}/insights`, {
+          params: {
+            access_token: token,
+            metric: "impressions,reach,follower_count,profile_views",
+            period: "day",
+            since,
+            until,
+          },
+        });
+        insightsData = insightsRes.data.data || [];
+      } catch (err: any) {
+        this.handleFailedInstagramApiCall(
+          err,
+          'syncInstagram',
+          `${BASE}/${accountId}/insights?metric=impressions,reach,follower_count,profile_views&period=day&since=${since}&until=${until}`,
+          accountId,
+          token,
+          {
+            metrics: "impressions,reach,follower_count,profile_views",
+            period: "day",
+          }
+        );
+      }
     }
 
     // 3. Build daily data map
@@ -1096,8 +1099,6 @@ ${JSON.stringify(responseData, null, 2)}`;
 
     for (const integration of integrations) {
       try {
-        const META_VERSION = process.env.META_API_VERSION || 'v21.0';
-        const BASE = `https://graph.facebook.com/${META_VERSION}`;
         // Prefer pageAccessToken for Instagram (it's the page token that has IG permissions)
         const rawToken = integration.pageAccessToken || integration.accessToken;
         const token = safeDecrypt(rawToken);
@@ -1108,90 +1109,97 @@ ${JSON.stringify(responseData, null, 2)}`;
         }
         this.logger.log(`[getInstagramRealtime] Using token for IG account ${accountId}: ${token.slice(0, 8)}...`);
 
+        const isDirect = token.startsWith('IGQ') || token.startsWith('IG');
+        const BASE = isDirect ? `https://graph.instagram.com` : `https://graph.facebook.com/${process.env.META_API_VERSION || 'v21.0'}`;
+
         // Profile stats
         let profileRes: any;
         try {
           profileRes = await axios.get(`${BASE}/${accountId}`, {
             params: {
               access_token: token,
-              fields: 'followers_count,follows_count,media_count,name,username,profile_picture_url,biography,website',
+              fields: isDirect
+                ? 'id,username,media_count,account_type'
+                : 'followers_count,follows_count,media_count,name,username,profile_picture_url,biography,website',
             },
           });
         } catch (err: any) {
           this.handleFailedInstagramApiCall(
             err,
             'getInstagramRealtime',
-            `${BASE}/${accountId}?fields=followers_count,follows_count,media_count,name,username,profile_picture_url,biography,website`,
+            `${BASE}/${accountId}?fields=${isDirect ? 'id,username,media_count,account_type' : 'followers_count,follows_count,media_count,name,username,profile_picture_url,biography,website'}`,
             accountId,
             token,
             {
-              fields: 'followers_count,follows_count,media_count,name,username,profile_picture_url,biography,website',
+              fields: isDirect ? 'id,username,media_count,account_type' : 'followers_count,follows_count,media_count,name,username,profile_picture_url,biography,website',
             }
           );
         }
         const profile = profileRes.data;
 
         // Account insights (last 30 days)
-        const since = Math.floor(Date.now() / 1000) - 30 * 24 * 60 * 60;
-        const until = Math.floor(Date.now() / 1000);
-
         let totalReach = 0;
         let totalImpressions = 0;
         let totalProfileViews = 0;
         const dailyData: any[] = [];
 
-        try {
-          const insightsRes = await axios.get(`${BASE}/${accountId}/insights`, {
-            params: {
-              access_token: token,
-              metric: 'impressions,reach,follower_count,profile_views',
-              period: 'day',
-              since,
-              until,
-            },
-          });
+        if (!isDirect) {
+          const since = Math.floor(Date.now() / 1000) - 30 * 24 * 60 * 60;
+          const until = Math.floor(Date.now() / 1000);
 
-          const insightsMap: Record<string, any> = {};
-          for (const metric of insightsRes.data.data || []) {
-            for (const val of metric.values || []) {
-              const date = val.end_time?.split('T')[0];
-              if (!date) continue;
-              if (!insightsMap[date]) insightsMap[date] = { date };
-              insightsMap[date][metric.name] = val.value || 0;
-            }
-          }
-
-          for (const [date, data] of Object.entries(insightsMap)) {
-            const d = data as any;
-            totalReach += d.reach || 0;
-            totalImpressions += d.impressions || 0;
-            totalProfileViews += d.profile_views || 0;
-            dailyData.push({
-              date,
-              reach: d.reach || 0,
-              impressions: d.impressions || 0,
-              followers: d.follower_count || profile.followers_count,
-              profileViews: d.profile_views || 0,
+          try {
+            const insightsRes = await axios.get(`${BASE}/${accountId}/insights`, {
+              params: {
+                access_token: token,
+                metric: 'impressions,reach,follower_count,profile_views',
+                period: 'day',
+                since,
+                until,
+              },
             });
-          }
-          dailyData.sort((a, b) => a.date.localeCompare(b.date));
-        } catch (err: any) {
-          this.handleFailedInstagramApiCall(
-            err,
-            'getInstagramRealtime',
-            `${BASE}/${accountId}/insights?metric=impressions,reach,follower_count,profile_views&period=day&since=${since}&until=${until}`,
-            accountId,
-            token,
-            {
-              metrics: 'impressions,reach,follower_count,profile_views',
-              period: 'day',
+
+            const insightsMap: Record<string, any> = {};
+            for (const metric of insightsRes.data.data || []) {
+              for (const val of metric.values || []) {
+                const date = val.end_time?.split('T')[0];
+                if (!date) continue;
+                if (!insightsMap[date]) insightsMap[date] = { date };
+                insightsMap[date][metric.name] = val.value || 0;
+              }
             }
-          );
+
+            for (const [date, data] of Object.entries(insightsMap)) {
+              const d = data as any;
+              totalReach += d.reach || 0;
+              totalImpressions += d.impressions || 0;
+              totalProfileViews += d.profile_views || 0;
+              dailyData.push({
+                date,
+                reach: d.reach || 0,
+                impressions: d.impressions || 0,
+                followers: d.follower_count || profile.followers_count,
+                profileViews: d.profile_views || 0,
+              });
+            }
+            dailyData.sort((a, b) => a.date.localeCompare(b.date));
+          } catch (err: any) {
+            this.handleFailedInstagramApiCall(
+              err,
+              'getInstagramRealtime',
+              `${BASE}/${accountId}/insights?metric=impressions,reach,follower_count,profile_views&period=day&since=${since}&until=${until}`,
+              accountId,
+              token,
+              {
+                metrics: 'impressions,reach,follower_count,profile_views',
+                period: 'day',
+              }
+            );
+          }
         }
 
         results.push({
           integrationId: integration.id,
-          accountName: profile.name || integration.name,
+          accountName: profile.username || integration.name,
           username: profile.username,
           pictureUrl: profile.profile_picture_url || integration.pictureUrl,
           followers: profile.followers_count || 0,
@@ -1204,8 +1212,9 @@ ${JSON.stringify(responseData, null, 2)}`;
           totalProfileViews,
           dailyData,
         });
-      } catch (err) {
-        this.logger.warn(`Instagram realtime for ${integration.id}: ${err.message}`);
+      } catch (err: any) {
+        this.logger.error(`Instagram realtime error for ${integration.id}: ${err.message}`);
+        throw err;
       }
     }
 
@@ -1223,16 +1232,16 @@ ${JSON.stringify(responseData, null, 2)}`;
 
     for (const integration of integrations) {
       try {
-        const META_VERSION = process.env.META_API_VERSION || 'v21.0';
-        const BASE = `https://graph.facebook.com/${META_VERSION}`;
         // Prefer pageAccessToken for Instagram (it's the page token that has IG permissions)
         const rawToken = integration.pageAccessToken || integration.accessToken;
         const token = safeDecrypt(rawToken);
-        const accountId = integration.internalId;
         if (!token) {
           this.logger.error(`[getInstagramPosts] Token decryption failed for integration ${integration.id} — skipping`);
           continue;
         }
+        const isDirect = token.startsWith('IGQ') || token.startsWith('IG');
+        const BASE = isDirect ? `https://graph.instagram.com` : `https://graph.facebook.com/${process.env.META_API_VERSION || 'v21.0'}`;
+        const accountId = integration.internalId;
 
         let mediaRes: any;
         try {
@@ -1259,28 +1268,30 @@ ${JSON.stringify(responseData, null, 2)}`;
         for (const post of mediaRes.data.data || []) {
           // Get insights for each post
           let insights: any = {};
-          try {
-            const insRes = await axios.get(`${BASE}/${post.id}/insights`, {
-              params: {
-                access_token: token,
-                metric: 'impressions,reach,saved,video_views',
-              },
-            });
-            for (const m of insRes.data.data || []) {
-              insights[m.name] = m.values?.[0]?.value || 0;
-            }
-          } catch (err: any) {
-            this.handleFailedInstagramApiCall(
-              err,
-              'getInstagramPosts',
-              `${BASE}/${post.id}/insights?metric=impressions,reach,saved,video_views`,
-              accountId,
-              token,
-              {
-                metrics: 'impressions,reach,saved,video_views',
-                media_id: post.id,
+          if (!isDirect) {
+            try {
+              const insRes = await axios.get(`${BASE}/${post.id}/insights`, {
+                params: {
+                  access_token: token,
+                  metric: 'impressions,reach,saved,video_views',
+                },
+              });
+              for (const m of insRes.data.data || []) {
+                insights[m.name] = m.values?.[0]?.value || 0;
               }
-            );
+            } catch (err: any) {
+              this.handleFailedInstagramApiCall(
+                err,
+                'getInstagramPosts',
+                `${BASE}/${post.id}/insights?metric=impressions,reach,saved,video_views`,
+                accountId,
+                token,
+                {
+                  metrics: 'impressions,reach,saved,video_views',
+                  media_id: post.id,
+                }
+              );
+            }
           }
 
           allPosts.push({

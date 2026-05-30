@@ -356,8 +356,8 @@ ${JSON.stringify(responseData, null, 2)}`;
     grid: GridCell[][],
     contentTypeMap: Record<string, { scores: number[]; hours: number[] }>,
   ): Promise<number> {
-    const META_VERSION = process.env.META_API_VERSION || 'v21.0';
-    const BASE = `https://graph.facebook.com/${META_VERSION}`;
+    const isDirect = token.startsWith('IGQ') || token.startsWith('IG');
+    const BASE = isDirect ? `https://graph.instagram.com` : `https://graph.facebook.com/${process.env.META_API_VERSION || 'v21.0'}`;
     let count = 0;
 
     let mediaRes: any;
@@ -391,29 +391,31 @@ ${JSON.stringify(responseData, null, 2)}`;
           metrics.push('plays', 'total_interactions');
         }
 
-        let insRes: any;
-        try {
-          insRes = await axios.get(`${BASE}/${post.id}/insights`, {
-            params: { access_token: token, metric: metrics.join(',') },
-            timeout: 10000,
-          });
-        } catch (err: any) {
-          this.handleFailedInstagramApiCall(
-            err,
-            'fetchInstagramMetrics',
-            `${BASE}/${post.id}/insights?metric=${metrics.join(',')}`,
-            integration.internalId,
-            token,
-            {
-              metrics: metrics.join(','),
-              media_id: post.id,
-            }
-          );
-        }
-
         const insights: Record<string, number> = {};
-        for (const m of insRes.data.data || []) {
-          insights[m.name] = m.values?.[0]?.value || m.value || 0;
+        if (!isDirect) {
+          let insRes: any;
+          try {
+            insRes = await axios.get(`${BASE}/${post.id}/insights`, {
+              params: { access_token: token, metric: metrics.join(',') },
+              timeout: 10000,
+            });
+          } catch (err: any) {
+            this.handleFailedInstagramApiCall(
+              err,
+              'fetchInstagramMetrics',
+              `${BASE}/${post.id}/insights?metric=${metrics.join(',')}`,
+              integration.internalId,
+              token,
+              {
+                metrics: metrics.join(','),
+                media_id: post.id,
+              }
+            );
+          }
+
+          for (const m of insRes.data.data || []) {
+            insights[m.name] = m.values?.[0]?.value || m.value || 0;
+          }
         }
 
         const publishDate = new Date(post.timestamp);

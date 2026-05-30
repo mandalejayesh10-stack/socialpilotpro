@@ -21,6 +21,11 @@ export class InstagramAnalyticsService {
       return { skipped: true, reason: 'token_decryption_failed' };
     }
 
+    if (token.startsWith('IGQ') || token.startsWith('IG')) {
+      this.logger.log(`[syncDemographics] Direct Instagram Login token detected for integration ${integration.id} — demographics are not supported, skipping gracefully`);
+      return { skipped: true, reason: 'unsupported_token_type_for_demographics' };
+    }
+
     const metrics = await this.fetchDemographics(accountId, token);
     await this.snapshots.storeDemographics({
       organizationId: integration.organizationId,
