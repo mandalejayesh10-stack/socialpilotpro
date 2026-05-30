@@ -40,6 +40,90 @@ export class RealTimeAnalyticsService {
     throw lastError;
   }
 
+  private handleFailedInstagramApiCall(
+    err: any,
+    method: string,
+    endpoint: string,
+    accountId: string,
+    token: string | undefined,
+    requestParams: {
+      metrics?: string;
+      fields?: string;
+      period?: string;
+      media_id?: string;
+      insight_type?: string;
+    }
+  ) {
+    const status = err?.response?.status || 'Unknown';
+    const responseData = err?.response?.data;
+    
+    let tokenType = 'Unknown';
+    if (token) {
+      if (token.startsWith('EAA')) {
+        tokenType = 'Facebook Page Token (EAA...)';
+      } else if (token.startsWith('IGQ') || token.startsWith('IG')) {
+        tokenType = 'Instagram Login Token (IGQ... / IG...)';
+      }
+    }
+
+    const metaErrorType = responseData?.error?.type || 'N/A';
+    const metaErrorCode = responseData?.error?.code || 'N/A';
+    const metaErrorSubcode = responseData?.error?.error_subcode || 'N/A';
+    const metaErrorMessage = responseData?.error?.message || 'N/A';
+    const fbTraceId = responseData?.error?.fbtrace_id || 'N/A';
+
+    // Sanitize access_token from endpoint if present
+    let maskedEndpoint = endpoint;
+    if (endpoint.includes('access_token=')) {
+      maskedEndpoint = endpoint.replace(/access_token=[^&]*/g, 'access_token=[MASKED]');
+    }
+
+    const logMessage = `[Instagram Analytics Error]
+
+Service: RealTimeAnalyticsService
+Method: ${method}
+
+Endpoint:
+${maskedEndpoint}
+
+Instagram Account ID:
+${accountId}
+
+Token Type:
+- ${tokenType}
+
+Request Parameters:
+- metrics: ${requestParams.metrics || 'N/A'}
+- fields: ${requestParams.fields || 'N/A'}
+- period: ${requestParams.period || 'N/A'}
+- media_id: ${requestParams.media_id || 'N/A'}
+- insight_type: ${requestParams.insight_type || 'N/A'}
+
+HTTP Status:
+${status}
+
+Meta Error Type:
+${metaErrorType}
+
+Meta Error Code:
+${metaErrorCode}
+
+Meta Error Subcode:
+${metaErrorSubcode}
+
+Meta Error Message:
+${metaErrorMessage}
+
+Meta Trace ID:
+${fbTraceId}
+
+Full Response JSON:
+${JSON.stringify(responseData, null, 2)}`;
+
+    this.logger.error(logMessage);
+    throw err;
+  }
+
   // ── Force sync all integrations for an org ────────────────
   async forceSyncOrg(organizationId: string) {
     const integrations = await this.prisma.integration.findMany({
@@ -371,12 +455,26 @@ export class RealTimeAnalyticsService {
     const accountId = integration.internalId;
 
     // 1. Account basic stats
-    const profileRes = await axios.get(`${BASE}/${accountId}`, {
-      params: {
-        access_token: token,
-        fields: "followers_count,follows_count,media_count,name,username,profile_picture_url,biography,website",
-      },
-    });
+    let profileRes: any;
+    try {
+      profileRes = await axios.get(`${BASE}/${accountId}`, {
+        params: {
+          access_token: token,
+          fields: "followers_count,follows_count,media_count,name,username,profile_picture_url,biography,website",
+        },
+      });
+    } catch (err: any) {
+      this.handleFailedInstagramApiCall(
+        err,
+        'syncInstagram',
+        `${BASE}/${accountId}?fields=followers_count,follows_count,media_count,name,username,profile_picture_url,biography,website`,
+        accountId,
+        token,
+        {
+          fields: "followers_count,follows_count,media_count,name,username,profile_picture_url,biography,website",
+        }
+      );
+    }
     const profile = profileRes.data;
     const followers = profile.followers_count || 0;
 
@@ -396,8 +494,18 @@ export class RealTimeAnalyticsService {
         },
       });
       insightsData = insightsRes.data.data || [];
-    } catch (err) {
-      this.logger.warn(`Instagram insights: ${err.message}`);
+    } catch (err: any) {
+      this.handleFailedInstagramApiCall(
+        err,
+        'syncInstagram',
+        `${BASE}/${accountId}/insights?metric=impressions,reach,follower_count,profile_views&period=day&since=${since}&until=${until}`,
+        accountId,
+        token,
+        {
+          metrics: "impressions,reach,follower_count,profile_views",
+          period: "day",
+        }
+      );
     }
 
     // 3. Build daily data map
@@ -1001,12 +1109,26 @@ export class RealTimeAnalyticsService {
         this.logger.log(`[getInstagramRealtime] Using token for IG account ${accountId}: ${token.slice(0, 8)}...`);
 
         // Profile stats
-        const profileRes = await axios.get(`${BASE}/${accountId}`, {
-          params: {
-            access_token: token,
-            fields: 'followers_count,follows_count,media_count,name,username,profile_picture_url,biography,website',
-          },
-        });
+        let profileRes: any;
+        try {
+          profileRes = await axios.get(`${BASE}/${accountId}`, {
+            params: {
+              access_token: token,
+              fields: 'followers_count,follows_count,media_count,name,username,profile_picture_url,biography,website',
+            },
+          });
+        } catch (err: any) {
+          this.handleFailedInstagramApiCall(
+            err,
+            'getInstagramRealtime',
+            `${BASE}/${accountId}?fields=followers_count,follows_count,media_count,name,username,profile_picture_url,biography,website`,
+            accountId,
+            token,
+            {
+              fields: 'followers_count,follows_count,media_count,name,username,profile_picture_url,biography,website',
+            }
+          );
+        }
         const profile = profileRes.data;
 
         // Account insights (last 30 days)
@@ -1053,8 +1175,18 @@ export class RealTimeAnalyticsService {
             });
           }
           dailyData.sort((a, b) => a.date.localeCompare(b.date));
-        } catch (err) {
-          this.logger.warn(`Instagram insights: ${err.message}`);
+        } catch (err: any) {
+          this.handleFailedInstagramApiCall(
+            err,
+            'getInstagramRealtime',
+            `${BASE}/${accountId}/insights?metric=impressions,reach,follower_count,profile_views&period=day&since=${since}&until=${until}`,
+            accountId,
+            token,
+            {
+              metrics: 'impressions,reach,follower_count,profile_views',
+              period: 'day',
+            }
+          );
         }
 
         results.push({
@@ -1102,13 +1234,27 @@ export class RealTimeAnalyticsService {
           continue;
         }
 
-        const mediaRes = await axios.get(`${BASE}/${accountId}/media`, {
-          params: {
-            access_token: token,
-            fields: 'id,caption,media_type,media_url,thumbnail_url,timestamp,like_count,comments_count,permalink',
-            limit: 50,
-          },
-        });
+        let mediaRes: any;
+        try {
+          mediaRes = await axios.get(`${BASE}/${accountId}/media`, {
+            params: {
+              access_token: token,
+              fields: 'id,caption,media_type,media_url,thumbnail_url,timestamp,like_count,comments_count,permalink',
+              limit: 50,
+            },
+          });
+        } catch (err: any) {
+          this.handleFailedInstagramApiCall(
+            err,
+            'getInstagramPosts',
+            `${BASE}/${accountId}/media?fields=id,caption,media_type,media_url,thumbnail_url,timestamp,like_count,comments_count,permalink&limit=50`,
+            accountId,
+            token,
+            {
+              fields: 'id,caption,media_type,media_url,thumbnail_url,timestamp,like_count,comments_count,permalink',
+            }
+          );
+        }
 
         for (const post of mediaRes.data.data || []) {
           // Get insights for each post
@@ -1123,7 +1269,19 @@ export class RealTimeAnalyticsService {
             for (const m of insRes.data.data || []) {
               insights[m.name] = m.values?.[0]?.value || 0;
             }
-          } catch {}
+          } catch (err: any) {
+            this.handleFailedInstagramApiCall(
+              err,
+              'getInstagramPosts',
+              `${BASE}/${post.id}/insights?metric=impressions,reach,saved,video_views`,
+              accountId,
+              token,
+              {
+                metrics: 'impressions,reach,saved,video_views',
+                media_id: post.id,
+              }
+            );
+          }
 
           allPosts.push({
             id: post.id,

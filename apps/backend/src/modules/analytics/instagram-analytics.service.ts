@@ -52,9 +52,94 @@ export class InstagramAnalyticsService {
     return result;
   }
 
+  private handleFailedInstagramApiCall(
+    err: any,
+    method: string,
+    endpoint: string,
+    accountId: string,
+    token: string | undefined,
+    requestParams: {
+      metrics?: string;
+      fields?: string;
+      period?: string;
+      media_id?: string;
+      insight_type?: string;
+    }
+  ) {
+    const status = err?.response?.status || 'Unknown';
+    const responseData = err?.response?.data;
+    
+    let tokenType = 'Unknown';
+    if (token) {
+      if (token.startsWith('EAA')) {
+        tokenType = 'Facebook Page Token (EAA...)';
+      } else if (token.startsWith('IGQ') || token.startsWith('IG')) {
+        tokenType = 'Instagram Login Token (IGQ... / IG...)';
+      }
+    }
+
+    const metaErrorType = responseData?.error?.type || 'N/A';
+    const metaErrorCode = responseData?.error?.code || 'N/A';
+    const metaErrorSubcode = responseData?.error?.error_subcode || 'N/A';
+    const metaErrorMessage = responseData?.error?.message || 'N/A';
+    const fbTraceId = responseData?.error?.fbtrace_id || 'N/A';
+
+    // Sanitize access_token from endpoint if present
+    let maskedEndpoint = endpoint;
+    if (endpoint.includes('access_token=')) {
+      maskedEndpoint = endpoint.replace(/access_token=[^&]*/g, 'access_token=[MASKED]');
+    }
+
+    const logMessage = `[Instagram Analytics Error]
+
+Service: InstagramAnalyticsService
+Method: ${method}
+
+Endpoint:
+${maskedEndpoint}
+
+Instagram Account ID:
+${accountId}
+
+Token Type:
+- ${tokenType}
+
+Request Parameters:
+- metrics: ${requestParams.metrics || 'N/A'}
+- fields: ${requestParams.fields || 'N/A'}
+- period: ${requestParams.period || 'N/A'}
+- media_id: ${requestParams.media_id || 'N/A'}
+- insight_type: ${requestParams.insight_type || 'N/A'}
+
+HTTP Status:
+${status}
+
+Meta Error Type:
+${metaErrorType}
+
+Meta Error Code:
+${metaErrorCode}
+
+Meta Error Subcode:
+${metaErrorSubcode}
+
+Meta Error Message:
+${metaErrorMessage}
+
+Meta Trace ID:
+${fbTraceId}
+
+Full Response JSON:
+${JSON.stringify(responseData, null, 2)}`;
+
+    this.logger.error(logMessage);
+    throw err;
+  }
+
   private async tryInsight(base: string, accountId: string, token: string, breakdown: string, result: Record<string, any>) {
+    const url = `${base}/${accountId}/insights`;
     try {
-      const res = await this.withRetry(() => axios.get(`${base}/${accountId}/insights`, {
+      const res = await this.withRetry(() => axios.get(url, {
         params: {
           access_token: token,
           metric: 'follower_demographics',
@@ -65,13 +150,25 @@ export class InstagramAnalyticsService {
       }));
       result[breakdown] = this.extractBreakdown(res.data?.data?.[0]?.total_value?.breakdowns?.[0]?.results || []);
     } catch (err: any) {
-      this.logger.warn(`Instagram demographics ${breakdown} unavailable: ${this.errorMessage(err)}`);
+      this.handleFailedInstagramApiCall(
+        err,
+        'tryInsight',
+        `${url}?metric=follower_demographics&period=lifetime&metric_type=total_value&breakdown=${breakdown}`,
+        accountId,
+        token,
+        {
+          metrics: 'follower_demographics',
+          period: 'lifetime',
+          insight_type: 'follower_demographics',
+        }
+      );
     }
   }
 
   private async tryLegacyInsight(base: string, accountId: string, token: string, result: Record<string, any>) {
+    const url = `${base}/${accountId}/insights`;
     try {
-      const res = await this.withRetry(() => axios.get(`${base}/${accountId}/insights`, {
+      const res = await this.withRetry(() => axios.get(url, {
         params: {
           access_token: token,
           metric: 'audience_country,audience_city,audience_gender_age',
@@ -86,7 +183,17 @@ export class InstagramAnalyticsService {
         if (item.name === 'audience_gender_age') this.splitGenderAge(values, result);
       }
     } catch (err: any) {
-      this.logger.warn(`Instagram legacy demographics unavailable: ${this.errorMessage(err)}`);
+      this.handleFailedInstagramApiCall(
+        err,
+        'tryLegacyInsight',
+        `${url}?metric=audience_country,audience_city,audience_gender_age&period=lifetime`,
+        accountId,
+        token,
+        {
+          metrics: 'audience_country,audience_city,audience_gender_age',
+          period: 'lifetime',
+        }
+      );
     }
   }
 

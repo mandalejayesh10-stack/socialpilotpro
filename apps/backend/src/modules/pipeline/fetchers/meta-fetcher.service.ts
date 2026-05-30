@@ -33,17 +33,114 @@ export class MetaFetcherService {
     throw lastError;
   }
 
+  private handleFailedInstagramApiCall(
+    err: any,
+    method: string,
+    endpoint: string,
+    accountId: string,
+    token: string | undefined,
+    requestParams: {
+      metrics?: string;
+      fields?: string;
+      period?: string;
+      media_id?: string;
+      insight_type?: string;
+    }
+  ) {
+    const status = err?.response?.status || 'Unknown';
+    const responseData = err?.response?.data;
+    
+    let tokenType = 'Unknown';
+    if (token) {
+      if (token.startsWith('EAA')) {
+        tokenType = 'Facebook Page Token (EAA...)';
+      } else if (token.startsWith('IGQ') || token.startsWith('IG')) {
+        tokenType = 'Instagram Login Token (IGQ... / IG...)';
+      }
+    }
+
+    const metaErrorType = responseData?.error?.type || 'N/A';
+    const metaErrorCode = responseData?.error?.code || 'N/A';
+    const metaErrorSubcode = responseData?.error?.error_subcode || 'N/A';
+    const metaErrorMessage = responseData?.error?.message || 'N/A';
+    const fbTraceId = responseData?.error?.fbtrace_id || 'N/A';
+
+    // Sanitize access_token from endpoint if present
+    let maskedEndpoint = endpoint;
+    if (endpoint.includes('access_token=')) {
+      maskedEndpoint = endpoint.replace(/access_token=[^&]*/g, 'access_token=[MASKED]');
+    }
+
+    const logMessage = `[Instagram Analytics Error]
+
+Service: MetaFetcherService
+Method: ${method}
+
+Endpoint:
+${maskedEndpoint}
+
+Instagram Account ID:
+${accountId}
+
+Token Type:
+- ${tokenType}
+
+Request Parameters:
+- metrics: ${requestParams.metrics || 'N/A'}
+- fields: ${requestParams.fields || 'N/A'}
+- period: ${requestParams.period || 'N/A'}
+- media_id: ${requestParams.media_id || 'N/A'}
+- insight_type: ${requestParams.insight_type || 'N/A'}
+
+HTTP Status:
+${status}
+
+Meta Error Type:
+${metaErrorType}
+
+Meta Error Code:
+${metaErrorCode}
+
+Meta Error Subcode:
+${metaErrorSubcode}
+
+Meta Error Message:
+${metaErrorMessage}
+
+Meta Trace ID:
+${fbTraceId}
+
+Full Response JSON:
+${JSON.stringify(responseData, null, 2)}`;
+
+    this.logger.error(logMessage);
+    throw err;
+  }
+
   // ── Basic stats (followers, profile info) ─────────────────
   async fetchBasicStats(platform: string, accountId: string, token: string) {
     if (platform === 'INSTAGRAM') {
       return this.getCached(`ig:basic:${accountId}`, 5 * 60 * 1000, async () => {
-      const res = await axios.get(`${BASE}/${accountId}`, {
-        params: {
-          access_token: token,
-          fields: 'followers_count,follows_count,media_count,name,username,profile_picture_url,biography,website',
-        },
-      });
-      return res.data;
+        try {
+          const res = await axios.get(`${BASE}/${accountId}`, {
+            params: {
+              access_token: token,
+              fields: 'followers_count,follows_count,media_count,name,username,profile_picture_url,biography,website',
+            },
+          });
+          return res.data;
+        } catch (err: any) {
+          this.handleFailedInstagramApiCall(
+            err,
+            'fetchBasicStats',
+            `${BASE}/${accountId}?fields=followers_count,follows_count,media_count,name,username,profile_picture_url,biography,website`,
+            accountId,
+            token,
+            {
+              fields: 'followers_count,follows_count,media_count,name,username,profile_picture_url,biography,website',
+            }
+          );
+        }
       });
     }
 
@@ -71,15 +168,31 @@ export class MetaFetcherService {
     for (const batch of batches) {
       for (const mediaId of batch) {
         try {
-          const res = await this.getCached(`ig:post:${mediaId}`, 10 * 60 * 1000, async () => axios.get(`${BASE}/${mediaId}/insights`, {
-            params: {
-              access_token: token,
-              metric: 'impressions,reach,likes,comments,shares,saved,video_views,plays,total_interactions',
-            },
-          }));
+          const res = await this.getCached(`ig:post:${mediaId}`, 10 * 60 * 1000, async () => {
+            try {
+              return await axios.get(`${BASE}/${mediaId}/insights`, {
+                params: {
+                  access_token: token,
+                  metric: 'impressions,reach,likes,comments,shares,saved,video_views,plays,total_interactions',
+                },
+              });
+            } catch (err: any) {
+              this.handleFailedInstagramApiCall(
+                err,
+                'fetchPostInsights',
+                `${BASE}/${mediaId}/insights?metric=impressions,reach,likes,comments,shares,saved,video_views,plays,total_interactions`,
+                mediaId,
+                token,
+                {
+                  metrics: 'impressions,reach,likes,comments,shares,saved,video_views,plays,total_interactions',
+                  media_id: mediaId,
+                }
+              );
+            }
+          });
           results[mediaId] = this.parseInsights(res.data.data);
-        } catch (err) {
-          this.logger.warn(`Failed to fetch insights for media ${mediaId}: ${err.message}`);
+        } catch (err: any) {
+          throw err;
         }
       }
     }
@@ -113,15 +226,31 @@ export class MetaFetcherService {
     const since = Math.floor(Date.now() / 1000) - 30 * 24 * 60 * 60;
     const until = Math.floor(Date.now() / 1000);
 
-    const res = await this.getCached(`ig:insights:${accountId}`, 10 * 60 * 1000, async () => axios.get(`${BASE}/${accountId}/insights`, {
-      params: {
-        access_token: token,
-        metric: 'impressions,reach,follower_count,profile_views,website_clicks,total_interactions,accounts_engaged',
-        period: 'day',
-        since,
-        until,
-      },
-    }));
+    const res = await this.getCached(`ig:insights:${accountId}`, 10 * 60 * 1000, async () => {
+      try {
+        return await axios.get(`${BASE}/${accountId}/insights`, {
+          params: {
+            access_token: token,
+            metric: 'impressions,reach,follower_count,profile_views,website_clicks,total_interactions,accounts_engaged',
+            period: 'day',
+            since,
+            until,
+          },
+        });
+      } catch (err: any) {
+        this.handleFailedInstagramApiCall(
+          err,
+          'fetchInstagramInsights',
+          `${BASE}/${accountId}/insights?metric=impressions,reach,follower_count,profile_views,website_clicks,total_interactions,accounts_engaged&period=day&since=${since}&until=${until}`,
+          accountId,
+          token,
+          {
+            metrics: 'impressions,reach,follower_count,profile_views,website_clicks,total_interactions,accounts_engaged',
+            period: 'day',
+          }
+        );
+      }
+    });
 
     return res.data.data;
   }
@@ -146,14 +275,27 @@ export class MetaFetcherService {
 
   async fetchInstagramMedia(accountId: string, token: string) {
     return this.getCached(`ig:media:${accountId}`, 10 * 60 * 1000, async () => {
-      const res = await axios.get(`${BASE}/${accountId}/media`, {
-        params: {
-          access_token: token,
-          fields: 'id,caption,media_type,media_product_type,media_url,thumbnail_url,timestamp,like_count,comments_count,permalink',
-          limit: 50,
-        },
-      });
-      return res.data.data || [];
+      try {
+        const res = await axios.get(`${BASE}/${accountId}/media`, {
+          params: {
+            access_token: token,
+            fields: 'id,caption,media_type,media_product_type,media_url,thumbnail_url,timestamp,like_count,comments_count,permalink',
+            limit: 50,
+          },
+        });
+        return res.data.data || [];
+      } catch (err: any) {
+        this.handleFailedInstagramApiCall(
+          err,
+          'fetchInstagramMedia',
+          `${BASE}/${accountId}/media?fields=id,caption,media_type,media_product_type,media_url,thumbnail_url,timestamp,like_count,comments_count,permalink&limit=50`,
+          accountId,
+          token,
+          {
+            fields: 'id,caption,media_type,media_product_type,media_url,thumbnail_url,timestamp,like_count,comments_count,permalink',
+          }
+        );
+      }
     });
   }
 

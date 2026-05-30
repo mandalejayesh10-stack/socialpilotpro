@@ -265,6 +265,90 @@ export class BestTimeService {
     return this.buildResult(platform, timezone, grid, totalPosts, 'real', contentTypeBreakdown, []);
   }
 
+  private handleFailedInstagramApiCall(
+    err: any,
+    method: string,
+    endpoint: string,
+    accountId: string,
+    token: string | undefined,
+    requestParams: {
+      metrics?: string;
+      fields?: string;
+      period?: string;
+      media_id?: string;
+      insight_type?: string;
+    }
+  ) {
+    const status = err?.response?.status || 'Unknown';
+    const responseData = err?.response?.data;
+    
+    let tokenType = 'Unknown';
+    if (token) {
+      if (token.startsWith('EAA')) {
+        tokenType = 'Facebook Page Token (EAA...)';
+      } else if (token.startsWith('IGQ') || token.startsWith('IG')) {
+        tokenType = 'Instagram Login Token (IGQ... / IG...)';
+      }
+    }
+
+    const metaErrorType = responseData?.error?.type || 'N/A';
+    const metaErrorCode = responseData?.error?.code || 'N/A';
+    const metaErrorSubcode = responseData?.error?.error_subcode || 'N/A';
+    const metaErrorMessage = responseData?.error?.message || 'N/A';
+    const fbTraceId = responseData?.error?.fbtrace_id || 'N/A';
+
+    // Sanitize access_token from endpoint if present
+    let maskedEndpoint = endpoint;
+    if (endpoint.includes('access_token=')) {
+      maskedEndpoint = endpoint.replace(/access_token=[^&]*/g, 'access_token=[MASKED]');
+    }
+
+    const logMessage = `[Instagram Analytics Error]
+
+Service: BestTimeService
+Method: ${method}
+
+Endpoint:
+${maskedEndpoint}
+
+Instagram Account ID:
+${accountId}
+
+Token Type:
+- ${tokenType}
+
+Request Parameters:
+- metrics: ${requestParams.metrics || 'N/A'}
+- fields: ${requestParams.fields || 'N/A'}
+- period: ${requestParams.period || 'N/A'}
+- media_id: ${requestParams.media_id || 'N/A'}
+- insight_type: ${requestParams.insight_type || 'N/A'}
+
+HTTP Status:
+${status}
+
+Meta Error Type:
+${metaErrorType}
+
+Meta Error Code:
+${metaErrorCode}
+
+Meta Error Subcode:
+${metaErrorSubcode}
+
+Meta Error Message:
+${metaErrorMessage}
+
+Meta Trace ID:
+${fbTraceId}
+
+Full Response JSON:
+${JSON.stringify(responseData, null, 2)}`;
+
+    this.logger.error(logMessage);
+    throw err;
+  }
+
   // ── Instagram API fetch ───────────────────────────────────
   private async fetchInstagramMetrics(
     integration: any,
@@ -276,8 +360,9 @@ export class BestTimeService {
     const BASE = `https://graph.facebook.com/${META_VERSION}`;
     let count = 0;
 
+    let mediaRes: any;
     try {
-      const mediaRes = await axios.get(`${BASE}/${integration.internalId}/media`, {
+      mediaRes = await axios.get(`${BASE}/${integration.internalId}/media`, {
         params: {
           access_token: token,
           fields: 'id,timestamp,like_count,comments_count,media_type,thumbnail_url',
@@ -285,61 +370,87 @@ export class BestTimeService {
         },
         timeout: 15000,
       });
+    } catch (err: any) {
+      this.handleFailedInstagramApiCall(
+        err,
+        'fetchInstagramMetrics',
+        `${BASE}/${integration.internalId}/media?fields=id,timestamp,like_count,comments_count,media_type,thumbnail_url&limit=50`,
+        integration.internalId,
+        token,
+        {
+          fields: 'id,timestamp,like_count,comments_count,media_type,thumbnail_url',
+        }
+      );
+    }
 
-      for (const post of mediaRes.data.data || []) {
+    for (const post of mediaRes.data.data || []) {
+      try {
+        // Fetch insights including Reel-specific metrics
+        const metrics = ['impressions', 'reach', 'saved', 'video_views'];
+        if (post.media_type === 'VIDEO') {
+          metrics.push('plays', 'total_interactions');
+        }
+
+        let insRes: any;
         try {
-          // Fetch insights including Reel-specific metrics
-          const metrics = ['impressions', 'reach', 'saved', 'video_views'];
-          if (post.media_type === 'VIDEO') {
-            metrics.push('plays', 'total_interactions');
-          }
-
-          const insRes = await axios.get(`${BASE}/${post.id}/insights`, {
+          insRes = await axios.get(`${BASE}/${post.id}/insights`, {
             params: { access_token: token, metric: metrics.join(',') },
             timeout: 10000,
           });
+        } catch (err: any) {
+          this.handleFailedInstagramApiCall(
+            err,
+            'fetchInstagramMetrics',
+            `${BASE}/${post.id}/insights?metric=${metrics.join(',')}`,
+            integration.internalId,
+            token,
+            {
+              metrics: metrics.join(','),
+              media_id: post.id,
+            }
+          );
+        }
 
-          const insights: Record<string, number> = {};
-          for (const m of insRes.data.data || []) {
-            insights[m.name] = m.values?.[0]?.value || m.value || 0;
-          }
+        const insights: Record<string, number> = {};
+        for (const m of insRes.data.data || []) {
+          insights[m.name] = m.values?.[0]?.value || m.value || 0;
+        }
 
-          const publishDate = new Date(post.timestamp);
-          const day = publishDate.getDay();
-          const hour = publishDate.getHours();
+        const publishDate = new Date(post.timestamp);
+        const day = publishDate.getDay();
+        const hour = publishDate.getHours();
 
-          const contentType = post.media_type === 'VIDEO' ? 'REEL' :
-                              post.media_type === 'CAROUSEL_ALBUM' ? 'CAROUSEL' : 'IMAGE';
+        const contentType = post.media_type === 'VIDEO' ? 'REEL' :
+                            post.media_type === 'CAROUSEL_ALBUM' ? 'CAROUSEL' : 'IMAGE';
 
-          const score = this.calculateEngagementScore('INSTAGRAM', {
-            likes: post.like_count || 0,
-            comments: post.comments_count || 0,
-            shares: 0,
-            saves: insights.saved || 0,
-            reach: insights.reach || 0,
-            impressions: insights.impressions || 0,
-            videoViews: insights.video_views || insights.plays || 0,
-            engagementRate: 0,
-            watchTime: 0,
-            retention: 0,
-            ctr: 0,
-          });
+        const score = this.calculateEngagementScore('INSTAGRAM', {
+          likes: post.like_count || 0,
+          comments: post.comments_count || 0,
+          shares: 0,
+          saves: insights.saved || 0,
+          reach: insights.reach || 0,
+          impressions: insights.impressions || 0,
+          videoViews: insights.video_views || insights.plays || 0,
+          engagementRate: 0,
+          watchTime: 0,
+          retention: 0,
+          ctr: 0,
+        });
 
-          grid[day][hour].scores.push(score);
-          grid[day][hour].reach += insights.reach || 0;
-          if (!grid[day][hour].contentTypes.includes(contentType)) {
-            grid[day][hour].contentTypes.push(contentType);
-          }
+        grid[day][hour].scores.push(score);
+        grid[day][hour].reach += insights.reach || 0;
+        if (!grid[day][hour].contentTypes.includes(contentType)) {
+          grid[day][hour].contentTypes.push(contentType);
+        }
 
-          if (!contentTypeMap[contentType]) contentTypeMap[contentType] = { scores: [], hours: [] };
-          contentTypeMap[contentType].scores.push(score);
-          contentTypeMap[contentType].hours.push(hour);
+        if (!contentTypeMap[contentType]) contentTypeMap[contentType] = { scores: [], hours: [] };
+        contentTypeMap[contentType].scores.push(score);
+        contentTypeMap[contentType].hours.push(hour);
 
-          count++;
-        } catch { /* skip individual post errors */ }
+        count++;
+      } catch (err: any) {
+        throw err;
       }
-    } catch (err: any) {
-      this.logger.warn(`[BestTime] Instagram: ${err.message}`);
     }
 
     return count;
