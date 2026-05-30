@@ -106,6 +106,7 @@ export const integrationApi = {
   // bypassing cross-domain cookie issues completely.
   connectMetaUrl: (orgId: string) => request<{ url: string }>('/integrations/meta/connect', { orgId }),
   connectYoutubeUrl: (orgId: string) => request<{ url: string }>('/integrations/youtube/connect', { orgId }),
+  connectInstagramUrl: (orgId: string) => request<{ url: string }>('/integrations/instagram/connect', { orgId }),
 };
 
 // ── Posts ─────────────────────────────────────────────────────

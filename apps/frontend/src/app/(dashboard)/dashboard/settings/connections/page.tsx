@@ -8,7 +8,8 @@ import { useToast } from '@/components/ui/toast';
 import { mutate } from 'swr';
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Instagram, Facebook, Youtube, Plus, Trash2, RefreshCw, AlertCircle, CheckCircle, ExternalLink } from 'lucide-react';
+import { Instagram, Facebook, Youtube, Plus, Trash2, RefreshCw, AlertCircle, CheckCircle, ExternalLink, X, Lock, Shield, Sparkles } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import clsx from 'clsx';
 import dayjs from 'dayjs';
 
@@ -56,10 +57,20 @@ export default function ConnectionsPage() {
   const searchParams = useSearchParams();
   const { data: integrations = [], isLoading } = useIntegrations();
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
+  const [isInstagramModalOpen, setIsInstagramModalOpen] = useState(false);
   const [oauthStatus, setOauthStatus] = useState<{ meta: boolean; youtube: boolean }>({
     meta: false,
     youtube: false,
   });
+
+  // ESC key to close modal
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsInstagramModalOpen(false);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // Load OAuth provider status — public endpoint, no auth needed
   useEffect(() => {
@@ -118,13 +129,29 @@ export default function ConnectionsPage() {
   const handleConnect = async (platform: string) => {
     try {
       setConnecting(platform);
-      const { url } = platform === 'YOUTUBE' 
-        ? await integrationApi.connectYoutubeUrl(orgId)
-        : await integrationApi.connectMetaUrl(orgId);
+      let url: string;
+      if (platform === 'YOUTUBE') {
+        const res = await integrationApi.connectYoutubeUrl(orgId);
+        url = res.url;
+      } else if (platform === 'INSTAGRAM_DIRECT') {
+        const res = await integrationApi.connectInstagramUrl(orgId);
+        url = res.url;
+      } else {
+        const res = await integrationApi.connectMetaUrl(orgId);
+        url = res.url;
+      }
       window.location.href = url;
     } catch (e: any) {
       toast.error('Connection failed', e.message);
       setConnecting(null);
+    }
+  };
+
+  const handleConnectClick = (platform: string) => {
+    if (platform === 'INSTAGRAM') {
+      setIsInstagramModalOpen(true);
+    } else {
+      handleConnect(platform);
     }
   };
 
@@ -240,7 +267,7 @@ export default function ConnectionsPage() {
 
                 return (
                   <button
-                    onClick={() => handleConnect(platform)}
+                    onClick={() => handleConnectClick(platform)}
                     disabled={connecting === platform}
                     className={clsx(
                       'flex items-center justify-center gap-2 w-full py-2.5 rounded-xl text-xs font-semibold transition-all',
@@ -388,6 +415,208 @@ export default function ConnectionsPage() {
           </p>
         </div>
       )}
+
+      {/* Premium Instagram Connection Selector Modal */}
+      <AnimatePresence>
+        {isInstagramModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            {/* Backdrop Mask */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsInstagramModalOpen(false)}
+              className="absolute inset-0 bg-black/85 backdrop-blur-md"
+            />
+
+            {/* Modal Container */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 350 }}
+              className="relative w-full max-w-4xl bg-[#0c0c16]/95 border border-violet-500/20 rounded-[32px] overflow-hidden p-6 md:p-10 shadow-[0_0_80px_-12px_rgba(139,92,246,0.35)] z-10 max-h-[90vh] overflow-y-auto"
+            >
+              {/* Close Button */}
+              <button
+                onClick={() => setIsInstagramModalOpen(false)}
+                className="absolute top-6 right-6 p-2 rounded-full bg-surface-hover hover:bg-surface-border text-text-muted hover:text-text-primary transition-colors z-20"
+              >
+                <X size={16} />
+              </button>
+
+              {/* Title & Header */}
+              <div className="text-center mb-10 max-w-lg mx-auto">
+                <h2 className="text-2xl md:text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-white via-text-primary to-violet-300">
+                  Connect Instagram account
+                </h2>
+                <p className="text-sm text-text-muted mt-2">
+                  Select how you would like to connect your account
+                </p>
+              </div>
+
+              {/* Side-by-Side Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
+                
+                {/* CARD 1 — DIRECT INSTAGRAM OAUTH */}
+                <motion.div
+                  whileHover={{ y: -6, scale: 1.01 }}
+                  className="relative group flex flex-col justify-between rounded-3xl bg-gradient-to-b from-[#1c1c30]/40 to-[#0e0e18]/60 border border-pink-500/10 hover:border-pink-500/30 p-6 md:p-8 transition-all duration-300 hover:shadow-[0_0_30px_-5px_rgba(236,72,153,0.25)]"
+                >
+                  <div>
+                    {/* Pink Glow Accent */}
+                    <div className="absolute inset-0 bg-gradient-to-br from-pink-500/5 to-transparent rounded-3xl opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
+                    
+                    <div className="flex items-center justify-between mb-6">
+                      <div className="w-12 h-12 rounded-2xl bg-pink-500/10 text-pink-400 flex items-center justify-center shadow-[0_0_20px_rgba(236,72,153,0.15)]">
+                        <Instagram size={22} />
+                      </div>
+                      <Badge className="bg-pink-500/20 text-pink-300 border-none font-bold tracking-wide">
+                        Direct Login
+                      </Badge>
+                    </div>
+
+                    <h3 className="text-lg font-bold text-text-primary mb-2">Connect via Instagram</h3>
+                    <p className="text-xs text-text-muted mb-6 leading-relaxed">
+                      Connect your Instagram account directly without starting from Facebook.
+                    </p>
+
+                    {/* Features list */}
+                    <ul className="space-y-3 mb-8">
+                      <li className="flex items-center gap-2.5 text-xs text-text-secondary">
+                        <CheckCircle size={14} className="text-emerald-400 flex-shrink-0" />
+                        <span>Direct Instagram authentication</span>
+                      </li>
+                      <li className="flex items-center gap-2.5 text-xs text-text-secondary">
+                        <CheckCircle size={14} className="text-emerald-400 flex-shrink-0" />
+                        <span>Profile information syncing</span>
+                      </li>
+                      <li className="flex items-center gap-2.5 text-xs text-text-secondary">
+                        <CheckCircle size={14} className="text-emerald-400 flex-shrink-0" />
+                        <span>Basic account metrics & stats</span>
+                      </li>
+                      <li className="flex items-center gap-2.5 text-xs text-text-secondary">
+                        <CheckCircle size={14} className="text-emerald-400 flex-shrink-0" />
+                        <span>Creator account support</span>
+                      </li>
+                      <li className="flex items-center gap-2.5 text-xs text-text-secondary">
+                        <CheckCircle size={14} className="text-emerald-400 flex-shrink-0" />
+                        <span>Personal account connection support</span>
+                      </li>
+                    </ul>
+                  </div>
+
+                  <div className="space-y-3">
+                    <button
+                      onClick={() => {
+                        setIsInstagramModalOpen(false);
+                        handleConnect('INSTAGRAM_DIRECT');
+                      }}
+                      disabled={connecting === 'INSTAGRAM_DIRECT'}
+                      className="w-full py-3 rounded-2xl bg-gradient-to-r from-pink-500 to-rose-500 hover:from-pink-600 hover:to-rose-600 text-white font-bold text-xs tracking-wide shadow-lg shadow-pink-500/20 transition-all duration-200"
+                    >
+                      {connecting === 'INSTAGRAM_DIRECT' ? 'Connecting...' : 'Connect via Instagram'}
+                    </button>
+                    <p className="text-[10px] text-center text-text-muted italic">
+                      Best for direct Instagram account access and lightweight integrations
+                    </p>
+                  </div>
+                </motion.div>
+
+                {/* CARD 2 — FACEBOOK GRAPH API */}
+                <motion.div
+                  whileHover={{ y: -6, scale: 1.01 }}
+                  className="relative group flex flex-col justify-between rounded-3xl bg-gradient-to-b from-[#1c1c30]/40 to-[#0e0e18]/60 border border-blue-500/10 hover:border-blue-500/30 p-6 md:p-8 transition-all duration-300 hover:shadow-[0_0_30px_-5px_rgba(59,130,246,0.3)]"
+                >
+                  <div>
+                    {/* Blue Glow Accent */}
+                    <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-transparent rounded-3xl opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
+                    
+                    <div className="flex items-center justify-between mb-6">
+                      <div className="w-12 h-12 rounded-2xl bg-blue-500/10 text-blue-400 flex items-center justify-center shadow-[0_0_20px_rgba(59,130,246,0.15)]">
+                        <Facebook size={22} />
+                      </div>
+                      <Badge className="bg-gradient-to-r from-blue-500/30 to-violet-500/30 text-blue-300 border-none font-bold tracking-wide flex items-center gap-1">
+                        <Sparkles size={10} className="animate-pulse" />
+                        Recommended
+                      </Badge>
+                    </div>
+
+                    <h3 className="text-lg font-bold text-text-primary mb-2">Connect via Facebook</h3>
+                    <p className="text-xs text-text-muted mb-6 leading-relaxed">
+                      Unlock full Instagram Business capabilities through Meta Graph API.
+                    </p>
+
+                    {/* Features list */}
+                    <ul className="space-y-3 mb-8">
+                      <li className="flex items-center gap-2.5 text-xs text-text-secondary">
+                        <CheckCircle size={14} className="text-emerald-400 flex-shrink-0" />
+                        <span>Direct scheduling & automated publishing</span>
+                      </li>
+                      <li className="flex items-center gap-2.5 text-xs text-text-secondary">
+                        <CheckCircle size={14} className="text-emerald-400 flex-shrink-0" />
+                        <span>Reels & Stories publishing support</span>
+                      </li>
+                      <li className="flex items-center gap-2.5 text-xs text-text-secondary">
+                        <CheckCircle size={14} className="text-emerald-400 flex-shrink-0" />
+                        <span>Business insights & advanced analytics syncing</span>
+                      </li>
+                      <li className="flex items-center gap-2.5 text-xs text-text-secondary">
+                        <CheckCircle size={14} className="text-emerald-400 flex-shrink-0" />
+                        <span>Inbox access & comment management integrations</span>
+                      </li>
+                      <li className="flex items-center gap-2.5 text-xs text-text-secondary">
+                        <CheckCircle size={14} className="text-emerald-400 flex-shrink-0" />
+                        <span>Facebook Page connection integration</span>
+                      </li>
+                    </ul>
+                  </div>
+
+                  <div className="space-y-3">
+                    <button
+                      onClick={() => {
+                        setIsInstagramModalOpen(false);
+                        handleConnect('FACEBOOK');
+                      }}
+                      disabled={connecting === 'FACEBOOK'}
+                      className="w-full py-3 rounded-2xl bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 text-white font-bold text-xs tracking-wide shadow-lg shadow-blue-500/20 transition-all duration-200"
+                    >
+                      {connecting === 'FACEBOOK' ? 'Connecting...' : 'Connect via Facebook'}
+                    </button>
+                    <p className="text-[10px] text-center text-text-muted italic">
+                      Recommended for businesses requiring publishing, analytics, scheduling, and reels
+                    </p>
+                  </div>
+                </motion.div>
+
+              </div>
+
+              {/* Informational Architecture Footnotes */}
+              <div className="mt-10 pt-6 border-t border-surface-border/50 text-[11px] text-text-muted/70 leading-relaxed grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <h4 className="font-semibold text-text-secondary mb-1 flex items-center gap-1">
+                    <Lock size={10} />
+                    Direct Instagram Login (Instagram Basic API)
+                  </h4>
+                  <p>
+                    Authenticates you directly via Instagram. This lightweight protocol permits fetching your profile name, media count, and follower counts cleanly. However, it does not support third-party publishing, Reels scheduling, or automated inbox actions.
+                  </p>
+                </div>
+                <div>
+                  <h4 className="font-semibold text-text-secondary mb-1 flex items-center gap-1">
+                    <Shield size={10} />
+                    Facebook Login (Instagram Graph API)
+                  </h4>
+                  <p>
+                    Leverages the comprehensive enterprise Meta Graph API. This connection requires that your Instagram account is set to a Creator or Business profile and linked to a Facebook Page you manage. Enables full scheduling, auto-publishing, Reels, and deep analytics syncing.
+                  </p>
+                </div>
+              </div>
+
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

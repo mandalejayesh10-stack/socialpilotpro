@@ -6,6 +6,7 @@ import { Response, Request } from 'express';
 import { IntegrationService } from './integration.service';
 import { MetaOAuthService } from './providers/meta-oauth.service';
 import { YoutubeOAuthService } from './providers/youtube-oauth.service';
+import { InstagramOAuthService } from './providers/instagram-oauth.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { OrgMemberGuard } from '../../common/guards/org-member.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
@@ -22,6 +23,7 @@ export class IntegrationController {
     private integrationService: IntegrationService,
     private metaOAuth: MetaOAuthService,
     private youtubeOAuth: YoutubeOAuthService,
+    private instagramOAuth: InstagramOAuthService,
   ) {}
 
   // ── List integrations ─────────────────────────────────────
@@ -46,6 +48,12 @@ export class IntegrationController {
         appId: process.env.FACEBOOK_APP_ID,
         addRedirectUri: `${backendUrl}/api/integrations/meta/callback`,
       },
+      instagram: {
+        configured: this.instagramOAuth.isConfigured(),
+        feature: 'Direct Instagram Login',
+        appId: this.instagramOAuth.INSTAGRAM_CLIENT_ID,
+        addRedirectUri: `${backendUrl}/api/integrations/instagram/callback`,
+      },
       youtube: {
         configured: this.youtubeOAuth.isConfigured(),
         feature: 'YouTube',
@@ -53,6 +61,42 @@ export class IntegrationController {
         addRedirectUri: `${backendUrl}/api/integrations/youtube/callback`,
       },
     };
+  }
+
+  // ── Instagram Direct OAuth ────────────────────────────────
+  @Get('instagram/connect')
+  @UseGuards(OrgMemberGuard, PermissionsGuard)
+  @RequirePermissions('integrations:write')
+  @ApiOperation({ summary: 'Start Direct Instagram OAuth flow' })
+  async connectInstagram(
+    @CurrentOrg() org: any,
+    @CurrentUser() user: any,
+    @Query('x-org-id') orgId: string,
+    @Query('orgId') orgId2: string,
+  ) {
+    const organizationId = org?.id || orgId || orgId2;
+    const url = await this.integrationService.getInstagramAuthUrl(organizationId, user.id);
+    return { url };
+  }
+
+  @Public()
+  @Get('instagram/callback')
+  @ApiOperation({ summary: 'Instagram Direct OAuth callback' })
+  async instagramCallback(
+    @Query('code') code: string,
+    @Query('state') state: string,
+    @Res() res: Response,
+  ) {
+    try {
+      if (!code) {
+        throw new Error('No authorization code received from Instagram');
+      }
+      await this.integrationService.handleInstagramCallback(code, state);
+      res.redirect(`${process.env.FRONTEND_URL}/dashboard/settings/connections?connected=instagram`);
+    } catch (err: any) {
+      console.error('[Instagram Callback Error]', err.message, err.stack);
+      res.redirect(`${process.env.FRONTEND_URL}/dashboard/settings/connections?error=${encodeURIComponent(err.message)}`);
+    }
   }
 
   // ── Meta OAuth ────────────────────────────────────────────

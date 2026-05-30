@@ -7,6 +7,7 @@ import {
 import { PrismaService } from '../database/prisma.service';
 import { MetaOAuthService } from './providers/meta-oauth.service';
 import { YoutubeOAuthService } from './providers/youtube-oauth.service';
+import { InstagramOAuthService } from './providers/instagram-oauth.service';
 import { encrypt, decrypt, safeDecrypt } from '../../common/utils/crypto.util';
 import { Platform } from '@prisma/client';
 import * as crypto from 'crypto';
@@ -18,6 +19,7 @@ export class IntegrationService {
     private prisma: PrismaService,
     private metaOAuth: MetaOAuthService,
     private youtubeOAuth: YoutubeOAuthService,
+    private instagramOAuth: InstagramOAuthService,
   ) {}
 
   // ── Get all integrations for an org ──────────────────────
@@ -174,6 +176,45 @@ export class IntegrationService {
 
     await this.updateAccountCount(organizationId);
     return created.map((i) => this.sanitizeIntegration(i));
+  }
+
+  // ── Instagram Direct OAuth flow ───────────────────────────
+  async getInstagramAuthUrl(organizationId: string, userId: string): Promise<string> {
+    const state = await this.createOAuthState(organizationId, userId, 'instagram');
+    return this.instagramOAuth.getAuthUrl(state);
+  }
+
+  async handleInstagramCallback(code: string, state: string) {
+    const { organizationId } = await this.consumeOAuthState(state, 'instagram');
+
+    this.logger.log(`[Instagram Direct Callback] ===== START org=${organizationId} =====`);
+
+    const data = await this.instagramOAuth.exchangeCode(code);
+
+    const expiryDate = new Date(Date.now() + (data.expiresIn || 5183999) * 1000);
+
+    const integration = await this.upsertIntegration({
+      organizationId,
+      platform: 'INSTAGRAM',
+      internalId: data.userId,
+      name: data.username,
+      accessToken: data.accessToken,
+      tokenExpiry: expiryDate,
+      profileData: JSON.stringify({
+        username: data.username,
+        accountType: data.accountType,
+        mediaCount: data.mediaCount,
+        connectionType: 'direct_instagram',
+      }),
+    });
+
+    this.logger.log(
+      `[Instagram Direct Callback] [DB] Saved Direct Instagram Account: id=${integration.id}, internalId=${data.userId}, username=${data.username}`,
+    );
+
+    await this.updateAccountCount(organizationId);
+
+    return this.sanitizeIntegration(integration);
   }
 
   // ── YouTube OAuth flow ────────────────────────────────────

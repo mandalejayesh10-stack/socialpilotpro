@@ -8,26 +8,27 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "axios": "^1.14.0",
+    "clsx": "^2.1.0",
+    "dayjs": "^1.11.10",
+    "framer-motion": "^12.40.0",
     "next": "16.2.1",
     "react": "19.2.4",
     "react-dom": "19.2.4",
-    "tailwindcss": "3.4.17",
-    "clsx": "^2.1.0",
-    "swr": "^2.2.5",
-    "recharts": "^2.12.7",
-    "dayjs": "^1.11.10",
     "react-hook-form": "^7.58.1",
-    "zustand": "^5.0.5",
-    "axios": "^1.14.0"
+    "recharts": "^2.12.7",
+    "swr": "^2.2.5",
+    "tailwindcss": "3.4.17",
+    "zustand": "^5.0.5"
   },
   "devDependencies": {
     "@types/node": "18.16.9",
     "@types/react": "19.1.8",
     "@types/react-dom": "19.1.6",
     "autoprefixer": "^10.4.17",
-    "postcss": "8.4.38",
-    "typescript": "5.5.4",
     "eslint": "8.57.0",
-    "eslint-config-next": "16.2.1"
+    "eslint-config-next": "16.2.1",
+    "postcss": "8.4.38",
+    "typescript": "5.5.4"
   }
 }
