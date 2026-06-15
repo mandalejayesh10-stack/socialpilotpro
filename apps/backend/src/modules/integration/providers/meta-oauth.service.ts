@@ -54,10 +54,10 @@ export class MetaOAuthService implements OnModuleInit {
       );
     }
 
-    const backendUrl = process.env.BACKEND_INTERNAL_URL || 'http://localhost:3000';
+    const redirectBase = process.env.FRONTEND_URL || 'http://localhost:4200';
     const params = new URLSearchParams({
       client_id: process.env.FACEBOOK_APP_ID!,
-      redirect_uri: `${backendUrl}/api/integrations/meta/callback`,
+      redirect_uri: `${redirectBase}/api/integrations/meta/callback`,
       scope: [
         'pages_show_list',
         'pages_read_engagement',
@@ -82,13 +82,13 @@ export class MetaOAuthService implements OnModuleInit {
     name: string;
     permissions: string[];
   }> {
-    const backendUrl = process.env.BACKEND_INTERNAL_URL || 'http://localhost:3000';
+    const redirectBase = process.env.FRONTEND_URL || 'http://localhost:4200';
 
     const res = await axios.get(`${this.BASE_URL}/oauth/access_token`, {
       params: {
         client_id: process.env.FACEBOOK_APP_ID,
         client_secret: process.env.FACEBOOK_APP_SECRET,
-        redirect_uri: `${backendUrl}/api/integrations/meta/callback`,
+        redirect_uri: `${redirectBase}/api/integrations/meta/callback`,
         code,
       },
     });

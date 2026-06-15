@@ -47,9 +47,9 @@ export class InstagramOAuthService implements OnModuleInit {
       );
     }
 
-    const backendUrl = process.env.BACKEND_INTERNAL_URL || 'http://localhost:3000';
+    const redirectBase = process.env.FRONTEND_URL || 'http://localhost:4200';
     const clientId = this.INSTAGRAM_CLIENT_ID!;
-    const redirectUri = `${backendUrl}/api/integrations/instagram/callback`;
+    const redirectUri = `${redirectBase}/api/integrations/instagram/callback`;
     const scope = 'instagram_business_basic';
     const responseType = 'code';
 
@@ -79,14 +79,14 @@ export class InstagramOAuthService implements OnModuleInit {
     mediaCount?: number;
     expiresIn?: number;
   }> {
-    const backendUrl = process.env.BACKEND_INTERNAL_URL || 'http://localhost:3000';
+    const redirectBase = process.env.FRONTEND_URL || 'http://localhost:4200';
 
     // 1. Exchange authorization code for a short-lived user access token
     const formData = new URLSearchParams();
     formData.append('client_id', this.INSTAGRAM_CLIENT_ID!);
     formData.append('client_secret', this.INSTAGRAM_CLIENT_SECRET!);
     formData.append('grant_type', 'authorization_code');
-    formData.append('redirect_uri', `${backendUrl}/api/integrations/instagram/callback`);
+    formData.append('redirect_uri', `${redirectBase}/api/integrations/instagram/callback`);
     formData.append('code', code);
 
     const res = await axios.post('https://api.instagram.com/oauth/access_token', formData.toString(), {

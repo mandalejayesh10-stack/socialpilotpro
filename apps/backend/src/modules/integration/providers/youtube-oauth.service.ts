@@ -33,7 +33,7 @@ export class YoutubeOAuthService implements OnModuleInit {
   isConfigured(): boolean { return this.configured; }
 
   private getRedirectUri(): string {
-    const base = process.env.BACKEND_INTERNAL_URL || 'http://localhost:3000';
+    const base = process.env.FRONTEND_URL || 'http://localhost:4200';
     return `${base}/api/integrations/youtube/callback`;
   }
 

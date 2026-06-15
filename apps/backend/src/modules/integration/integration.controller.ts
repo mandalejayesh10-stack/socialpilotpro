@@ -39,26 +39,26 @@ export class IntegrationController {
   @Public()
   @ApiOperation({ summary: 'Check which OAuth providers are configured' })
   getStatus() {
-    const backendUrl = process.env.BACKEND_INTERNAL_URL || 'http://localhost:3000';
+    const redirectBase = process.env.FRONTEND_URL || 'http://localhost:4200';
     return {
       meta: {
         configured: this.metaOAuth.isConfigured(),
         feature: 'Instagram + Facebook',
         account: 'bamandlajayesh@gmail.com',
         appId: process.env.FACEBOOK_APP_ID,
-        addRedirectUri: `${backendUrl}/api/integrations/meta/callback`,
+        addRedirectUri: `${redirectBase}/api/integrations/meta/callback`,
       },
       instagram: {
         configured: this.instagramOAuth.isConfigured(),
         feature: 'Direct Instagram Login',
         appId: this.instagramOAuth.INSTAGRAM_CLIENT_ID,
-        addRedirectUri: `${backendUrl}/api/integrations/instagram/callback`,
+        addRedirectUri: `${redirectBase}/api/integrations/instagram/callback`,
       },
       youtube: {
         configured: this.youtubeOAuth.isConfigured(),
         feature: 'YouTube',
         account: 'mandalejayesh10@gmail.com',
-        addRedirectUri: `${backendUrl}/api/integrations/youtube/callback`,
+        addRedirectUri: `${redirectBase}/api/integrations/youtube/callback`,
       },
     };
   }
