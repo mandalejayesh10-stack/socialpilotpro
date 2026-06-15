@@ -3,9 +3,11 @@
  * Never calls platform APIs directly from the frontend.
  */
 
-const BASE = process.env.NEXT_PUBLIC_BACKEND_URL
-  ? `${process.env.NEXT_PUBLIC_BACKEND_URL}/api`
-  : '/api';
+const BASE = typeof window !== 'undefined'
+  ? '/api'
+  : (process.env.NEXT_PUBLIC_BACKEND_URL
+    ? `${process.env.NEXT_PUBLIC_BACKEND_URL}/api`
+    : '/api');
 
 /**
  * Resolve a media URL returned by the backend.
