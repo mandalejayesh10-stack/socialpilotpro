@@ -522,6 +522,19 @@ ${JSON.stringify(responseData, null, 2)}`;
       }
     }
 
+    if (isDirect) {
+      // Generate 30 days of fallback dailyData with current follower count
+      const days = 30;
+      for (let i = 0; i < days; i++) {
+        const dateStr = new Date(Date.now() - (days - 1 - i) * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        dailyData[dateStr] = {
+          follower_count: followers,
+          reach: 0,
+          impressions: 0,
+        };
+      }
+    }
+
     // 4. Store daily snapshots
     for (const [dateStr, data] of Object.entries(dailyData)) {
       const periodDate = new Date(dateStr);
@@ -1195,6 +1208,20 @@ ${JSON.stringify(responseData, null, 2)}`;
               }
             );
           }
+        } else {
+          // Generate 30 days of fallback dailyData for Direct Login accounts
+          const days = 30;
+          const currentFollowers = profile.followers_count || 0;
+          for (let i = 0; i < days; i++) {
+            const dateStr = new Date(Date.now() - (days - 1 - i) * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+            dailyData.push({
+              date: dateStr,
+              reach: 0,
+              impressions: 0,
+              followers: currentFollowers,
+              profileViews: 0,
+            });
+          }
         }
 
         results.push({
@@ -1211,6 +1238,7 @@ ${JSON.stringify(responseData, null, 2)}`;
           totalImpressions,
           totalProfileViews,
           dailyData,
+          isDirect,
         });
       } catch (err: any) {
         this.logger.error(`Instagram realtime error for ${integration.id}: ${err.message}`);

@@ -10,7 +10,7 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { DemographicsPanel } from '@/components/analytics/demographics-panel';
 import clsx from 'clsx';
 import dayjs from 'dayjs';
-import { Instagram, RefreshCw, Download, Users, Eye, Heart, MessageSquare, Bookmark, ExternalLink, TrendingUp } from 'lucide-react';
+import { Instagram, RefreshCw, Download, Users, Eye, Heart, MessageSquare, Bookmark, ExternalLink, TrendingUp, AlertCircle } from 'lucide-react';
 import { DateRangePicker, DateRange } from '@/components/ui/date-range-picker';
 
 function fmt(n: number): string {
@@ -183,6 +183,19 @@ export default function InstagramAnalyticsPage() {
           <Button variant="secondary" size="sm" icon={<RefreshCw size={13} className={syncing ? 'animate-spin' : ''} />} loading={syncing} onClick={handleSync}>Sync</Button>
         </div>
       </div>
+
+      {/* Direct Login Banner Notice */}
+      {stats.some((s) => s.isDirect) && (
+        <div className="bg-blue-500/10 border border-blue-500/20 rounded-2xl p-4 flex gap-3 text-blue-300">
+          <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5 text-blue-400" />
+          <div>
+            <p className="text-sm font-semibold">Direct Instagram Connection Mode</p>
+            <p className="text-xs text-text-muted mt-1 leading-relaxed">
+              You connected via the direct login option. To view deep account analytics (Reach, Impressions, and Audience Demographics), Meta requires you to link your Instagram account to a Facebook Page and connect using the <strong className="text-blue-200">Facebook Login</strong> method.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-1 bg-surface-card border border-surface-border rounded-xl p-1 w-fit">
