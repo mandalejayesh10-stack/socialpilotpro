@@ -573,6 +573,65 @@ export class PostSchedulerService {
     return false;
   }
 
+  // ── Get video aspect ratio ────────────────────────────────
+  private async getVideoAspectRatio(url: string): Promise<number | null> {
+    try {
+      const filename = path.basename(url.split('?')[0]);
+      const media = await this.prisma.media.findFirst({
+        where: { name: filename, deletedAt: null },
+        select: { width: true, height: true, aspectRatio: true },
+      });
+      if (media) {
+        if (media.width && media.height) {
+          return media.width / media.height;
+        }
+        if (media.aspectRatio) {
+          const parts = media.aspectRatio.split(':');
+          if (parts.length === 2) {
+            const w = parseFloat(parts[0]);
+            const h = parseFloat(parts[1]);
+            if (!isNaN(w) && !isNaN(h) && h !== 0) {
+              return w / h;
+            }
+          }
+        }
+      }
+    } catch (err: any) {
+      this.logger.error(`Error querying media for aspect ratio: ${err.message}`);
+    }
+
+    try {
+      const localPath = this.getLocalPath(url);
+      if (localPath) {
+        const { execFileSync } = require('child_process');
+        const ffprobePath = process.env.FFPROBE_PATH || 'ffprobe';
+        const stdout = execFileSync(ffprobePath, [
+          '-v', 'error',
+          '-print_format', 'json',
+          '-show_streams',
+          localPath,
+        ], {
+          timeout: 5000,
+          windowsHide: true,
+          encoding: 'utf8',
+        });
+        const metadata = JSON.parse(stdout);
+        const video = (metadata.streams || []).find((s: any) => s.codec_type === 'video');
+        if (video) {
+          const width = Number(video.width || 0);
+          const height = Number(video.height || 0);
+          if (width > 0 && height > 0) {
+            return width / height;
+          }
+        }
+      }
+    } catch (err: any) {
+      this.logger.warn(`Could not extract aspect ratio from local file using ffprobe: ${err.message}`);
+    }
+
+    return null;
+  }
+
   // ── Format caption ────────────────────────────────────────
   private formatCaption(post: any): string {
     const content = post.content || '';
@@ -612,7 +671,15 @@ export class PostSchedulerService {
 
       if (isVideo) {
         createPayload.video_url = publicMediaUrls[0];
-        createPayload.media_type = 'REELS';
+        const ratio = await this.getVideoAspectRatio(rawMediaUrls[0]);
+        this.logger.log(`[Instagram] Video aspect ratio for ${rawMediaUrls[0]}: ${ratio}`);
+        if (ratio && ratio > 1) {
+          this.logger.log(`[Instagram] Horizontal video detected (aspect ratio: ${ratio}). Publishing as standard VIDEO.`);
+          createPayload.media_type = 'VIDEO';
+        } else {
+          this.logger.log(`[Instagram] Vertical/square video detected (aspect ratio: ${ratio}). Publishing as REELS.`);
+          createPayload.media_type = 'REELS';
+        }
       } else {
         createPayload.image_url = publicMediaUrls[0];
       }
