@@ -50,7 +50,7 @@ export class InstagramOAuthService implements OnModuleInit {
     const redirectBase = process.env.FRONTEND_URL || 'http://localhost:4200';
     const clientId = this.INSTAGRAM_CLIENT_ID!;
     const redirectUri = `${redirectBase}/api/integrations/instagram/callback`;
-    const scope = 'instagram_business_basic';
+    const scope = 'instagram_business_basic,instagram_business_content_publish';
     const responseType = 'code';
 
     this.logger.log(`[Instagram Direct OAuth] Generating Auth URL:`);
