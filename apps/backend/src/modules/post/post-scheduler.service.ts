@@ -588,8 +588,9 @@ export class PostSchedulerService {
     publicMediaUrls: string[],
     rawMediaUrls: string[],
   ) {
+    const isDirect = token.startsWith('IGQ') || token.startsWith('IG');
     const META_VERSION = process.env.META_API_VERSION || 'v21.0';
-    const BASE = `https://graph.facebook.com/${META_VERSION}`;
+    const BASE = isDirect ? `https://graph.instagram.com` : `https://graph.facebook.com/${META_VERSION}`;
     const igId = post.integration.internalId;
     const caption = this.formatCaption(post);
 
