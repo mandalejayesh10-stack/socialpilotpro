@@ -25,17 +25,17 @@ const config: Config = {
         },
         // ── Surface colors ─────────────────────────────────
         surface: {
-          DEFAULT: '#0f0f1a',
-          card:    '#16162a',
-          hover:   '#1e1e35',
-          border:  '#2a2a45',
-          input:   '#1a1a30',
+          DEFAULT: 'var(--surface-default)',
+          card:    'var(--surface-card)',
+          hover:   'var(--surface-hover)',
+          border:  'var(--surface-border)',
+          input:   'var(--surface-input)',
         },
         // ── Text ───────────────────────────────────────────
         text: {
-          primary:   '#f0f0ff',
-          secondary: '#9898b8',
-          muted:     '#5a5a7a',
+          primary:   'var(--text-primary)',
+          secondary: 'var(--text-secondary)',
+          muted:     'var(--text-muted)',
         },
         // ── Platform colors ────────────────────────────────
         instagram: '#e1306c',

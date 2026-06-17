@@ -2,23 +2,47 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Theme Variables ───────────────────────────────────────── */
+:root {
+  --surface-default: #f8fafc;
+  --surface-card: #ffffff;
+  --surface-hover: #f1f5f9;
+  --surface-border: #e2e8f0;
+  --surface-input: #f8fafc;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #94a3b8;
+}
+
+.dark {
+  --surface-default: #0f0f1a;
+  --surface-card: #16162a;
+  --surface-hover: #1e1e35;
+  --surface-border: #2a2a45;
+  --surface-input: #1a1a30;
+  --text-primary: #f0f0ff;
+  --text-secondary: #9898b8;
+  --text-muted: #5a5a7a;
+}
+
 /* ── Custom scrollbar ──────────────────────────────────────── */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #2a2a45; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #3a3a60; }
+::-webkit-scrollbar-thumb { background: var(--surface-border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--surface-hover); }
 
 /* ── Base ──────────────────────────────────────────────────── */
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
 
 body {
-  background-color: #0f0f1a;
-  color: #f0f0ff;
+  background-color: var(--surface-default);
+  color: var(--text-primary);
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
 /* ── Focus ring ────────────────────────────────────────────── */
 :focus-visible {
   outline: 2px solid #6366f1;
@@ -29,7 +53,7 @@ body {
 /* ── Selection ─────────────────────────────────────────────── */
 ::selection {
   background: rgba(99, 102, 241, 0.3);
-  color: #f0f0ff;
+  color: var(--text-primary);
 }
 
 /* ── Skeleton loader ───────────────────────────────────────── */
@@ -41,9 +65,9 @@ body {
 .skeleton {
   background: linear-gradient(
     90deg,
-    #16162a 25%,
-    #1e1e35 50%,
-    #16162a 75%
+    var(--surface-card) 25%,
+    var(--surface-hover) 50%,
+    var(--surface-card) 75%
   );
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
@@ -52,33 +76,38 @@ body {
 
 /* ── Recharts overrides ────────────────────────────────────── */
 .recharts-tooltip-wrapper .recharts-default-tooltip {
-  background: #16162a !important;
-  border: 1px solid #2a2a45 !important;
+  background: var(--surface-card) !important;
+  border: 1px solid var(--surface-border) !important;
   border-radius: 10px !important;
-  color: #f0f0ff !important;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.4) !important;
+  color: var(--text-primary) !important;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.15) !important;
 }
 
 .recharts-cartesian-grid-horizontal line,
 .recharts-cartesian-grid-vertical line {
-  stroke: #2a2a45 !important;
+  stroke: var(--surface-border) !important;
 }
 
-.recharts-text { fill: #9898b8 !important; }
+.recharts-text { fill: var(--text-secondary) !important; }
 
-.recharts-legend-item-text { color: #9898b8 !important; }
+.recharts-legend-item-text { color: var(--text-secondary) !important; }
 
 /* ── Prose overrides for legal pages ──────────────────────── */
 .prose-invert ul { list-style: disc; padding-left: 1.5rem; }
 .prose-invert li { margin-bottom: 0.25rem; }
-.prose-invert strong { color: #f0f0ff; }
+.prose-invert strong { color: var(--text-primary); }
 .prose-invert a { color: #818cf8; }
 
 /* ── Date input dark mode ──────────────────────────────────── */
-input[type="datetime-local"],
-input[type="date"],
-input[type="time"] {
+html.dark input[type="datetime-local"],
+html.dark input[type="date"],
+html.dark input[type="time"] {
   color-scheme: dark;
+}
+html:not(.dark) input[type="datetime-local"],
+html:not(.dark) input[type="date"],
+html:not(.dark) input[type="time"] {
+  color-scheme: light;
 }
 
 /* ── Range input ───────────────────────────────────────────── */
@@ -86,7 +115,7 @@ input[type="range"] {
   -webkit-appearance: none;
   height: 4px;
   border-radius: 2px;
-  background: #2a2a45;
+  background: var(--surface-border);
   outline: none;
 }
 
@@ -149,7 +178,7 @@ html {
 /* ── Custom gradient borders ───────────────────────────────── */
 .gradient-border {
   position: relative;
-  background: linear-gradient(#0f0f1e, #0f0f1e) padding-box,
+  background: linear-gradient(var(--surface-default), var(--surface-default)) padding-box,
               linear-gradient(135deg, rgba(124,58,237,0.5), rgba(168,85,247,0.3)) border-box;
   border: 1px solid transparent;
 }

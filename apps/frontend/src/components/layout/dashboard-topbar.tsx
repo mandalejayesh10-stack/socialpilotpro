@@ -10,6 +10,7 @@ import { authApi } from '@/lib/api';
 import { useRouter } from 'next/navigation';
 import { PostComposer } from '@/components/posts/post-composer';
 import { WorkspaceSwitcher } from '@/components/layout/workspace-switcher';
+import { ThemeToggle } from '@/components/layout/theme-toggle';
 
 export function DashboardTopbar() {
   const router = useRouter();
@@ -116,6 +117,9 @@ export function DashboardTopbar() {
               </div>
             )}
           </div>
+
+          {/* Theme Toggle */}
+          <ThemeToggle />
 
           {/* User menu */}
           <div ref={userRef} className="relative">
