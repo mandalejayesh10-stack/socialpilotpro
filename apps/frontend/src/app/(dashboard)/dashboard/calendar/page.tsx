@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { usePosts, useIntegrations, useOrgId } from '@/lib/hooks';
@@ -11,28 +11,52 @@ import clsx from 'clsx';
 import {
   Instagram, Facebook, Youtube, Plus, ChevronLeft, ChevronRight,
   Search, List, Calendar, Trash2, Edit2, MoreVertical, Clock,
-  Check, Sparkles, Filter, X, ExternalLink,
+  Check, Sparkles, Filter, X, ExternalLink, Linkedin, Store,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { MetricoolCreatePost } from '@/components/posts/metricool-create-post';
+
+const ThreadsIcon = ({ size = 12 }: { size?: number }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.25"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M12 2c-5.523 0-10 4.477-10 10s4.477 10 10 10c2.57 0 4.914-.972 6.697-2.563l-1.428-1.428c-1.393 1.222-3.21 1.991-5.269 1.991-4.418 0-8-3.582-8-8s3.582-8 8-8 8 3.582 8 8v1.5c0 .828-.672 1.5-1.5 1.5s-1.5-.672-1.5-1.5v-5.5h-2v1.571c-.754-.973-1.921-1.571-3.25-1.571-2.347 0-4.25 1.903-4.25 4.25s1.903 4.25 4.25 4.25c1.329 0 2.496-.598 3.25-1.571v.821c0 1.933 1.567 3.5 3.5 3.5s3.5-1.567 3.5-3.5v-3c0-5.523-4.477-10-10-10zm0 11.75c-1.243 0-2.25-1.007-2.25-2.25s1.007-2.25 2.25-2.25 2.25 1.007 2.25 2.25-1.007 2.25-2.25 2.25z" />
+  </svg>
+);
 
 // ── Platform config ───────────────────────────────────────────
 const PLATFORM_ICONS: Record<string, React.ReactNode> = {
   INSTAGRAM: <Instagram size={12} />,
   FACEBOOK:  <Facebook size={12} />,
   YOUTUBE:   <Youtube size={12} />,
+  LINKEDIN:  <Linkedin size={12} />,
+  THREADS:   <ThreadsIcon size={12} />,
+  GOOGLE_BUSINESS: <Store size={12} />,
 };
 
 const PLATFORM_COLORS: Record<string, string> = {
   INSTAGRAM: 'bg-pink-500 text-white',
   FACEBOOK:  'bg-blue-600 text-white',
   YOUTUBE:   'bg-red-600 text-white',
+  LINKEDIN:  'bg-sky-600 text-white',
+  THREADS:   'bg-slate-700 text-white',
+  GOOGLE_BUSINESS: 'bg-emerald-600 text-white',
 };
 
 const PLATFORM_BG: Record<string, string> = {
   INSTAGRAM: 'bg-pink-500/15 border-pink-500/30 text-pink-400',
   FACEBOOK:  'bg-blue-500/15 border-blue-500/30 text-blue-400',
   YOUTUBE:   'bg-red-500/15 border-red-500/30 text-red-400',
+  LINKEDIN:  'bg-sky-500/15 border-sky-500/30 text-sky-400',
+  THREADS:   'bg-slate-500/15 border-slate-500/30 text-slate-300',
+  GOOGLE_BUSINESS: 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400',
 };
 
 const STATE_COLORS: Record<string, string> = {

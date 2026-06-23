@@ -287,6 +287,12 @@ export class PostSchedulerService {
       await this.publishToFacebook(post, pageToken || token, publicMediaUrls, mediaUrls);
     } else if (platform === 'YOUTUBE') {
       await this.publishToYoutube(post, token, refreshToken, mediaUrls);
+    } else if (platform === 'LINKEDIN') {
+      await this.publishToLinkedin(post, token, publicMediaUrls);
+    } else if (platform === 'THREADS') {
+      await this.publishToThreads(post, token, publicMediaUrls, mediaUrls);
+    } else if (platform === 'GOOGLE_BUSINESS') {
+      await this.publishToGoogleBusiness(post, token, publicMediaUrls);
     } else {
       throw new Error(`Unsupported platform: ${platform}`);
     }
@@ -760,6 +766,199 @@ export class PostSchedulerService {
       post.id,
       publishedId,
       `https://www.instagram.com/p/${publishedId}`,
+    );
+  }
+
+  // ── LinkedIn publish ──────────────────────────────────────
+  private async publishToLinkedin(post: any, token: string, publicMediaUrls: string[]) {
+    const authorId = post.integration.internalId;
+    const caption = this.formatCaption(post);
+
+    const payload: any = {
+      author: `urn:li:person:${authorId}`,
+      commentary: caption,
+      visibility: 'PUBLIC',
+      distribution: {
+        feedDistribution: 'MAIN_FEED',
+        targeter: {},
+      },
+      lifecycleState: 'PUBLISHED',
+    };
+
+    if (publicMediaUrls.length > 0) {
+      payload.content = {
+        media: {
+          title: 'Scheduled Post',
+          id: publicMediaUrls[0],
+        },
+        article: {
+          source: publicMediaUrls[0],
+          title: 'Post Media',
+        }
+      };
+    }
+
+    this.logger.log(`[LinkedIn] Publishing to member ${authorId}`);
+    const res = await withTimeout(
+      axios.post('https://api.linkedin.com/v2/posts', payload, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'X-Restli-Protocol-Version': '2.0.0',
+        },
+        timeout: TIMEOUTS.META_API_CALL,
+      }),
+      TIMEOUTS.META_API_CALL,
+      'LinkedIn publish',
+    );
+
+    const publishedId = res.headers['x-restli-id'] || res.data.id;
+    this.logger.log(`[LinkedIn] Published! ID: ${publishedId}`);
+
+    await this.postService.markPublished(
+      post.id,
+      publishedId,
+      `https://www.linkedin.com/feed/update/${publishedId}`,
+    );
+  }
+
+  // ── Threads publish ───────────────────────────────────────
+  private async publishToThreads(
+    post: any,
+    token: string,
+    publicMediaUrls: string[],
+    rawMediaUrls: string[],
+  ) {
+    const userId = post.integration.internalId;
+    const caption = this.formatCaption(post);
+    const BASE = 'https://graph.threads.net/v1.0';
+
+    let mediaId: string;
+
+    const createPayload: any = {
+      access_token: token,
+    };
+
+    if (publicMediaUrls.length > 0) {
+      const isVideo = await this.isVideoMedia(rawMediaUrls[0]);
+      if (isVideo) {
+        createPayload.media_type = 'VIDEO';
+        createPayload.video_url = publicMediaUrls[0];
+      } else {
+        createPayload.media_type = 'IMAGE';
+        createPayload.image_url = publicMediaUrls[0];
+      }
+      if (caption) createPayload.text = caption;
+    } else {
+      createPayload.media_type = 'TEXT';
+      createPayload.text = caption || '';
+    }
+
+    this.logger.log(`[Threads] Creating media container for ${userId}`);
+    const createRes = await withTimeout(
+      axios.post(`${BASE}/${userId}/threads`, createPayload, { timeout: TIMEOUTS.META_API_CALL }),
+      TIMEOUTS.META_API_CALL,
+      'Threads create container',
+    );
+    mediaId = createRes.data.id;
+
+    if (publicMediaUrls.length > 0) {
+      mediaId = await this.waitForThreadsContainer(mediaId, token, BASE);
+    }
+
+    this.logger.log(`[Threads] Publishing container ${mediaId}`);
+    const publishRes = await withTimeout(
+      axios.post(`${BASE}/${userId}/threads_publish`, {
+        creation_id: mediaId,
+        access_token: token,
+      }, { timeout: TIMEOUTS.META_API_CALL }),
+      TIMEOUTS.META_API_CALL,
+      'Threads threads_publish',
+    );
+
+    const publishedId = publishRes.data.id;
+    this.logger.log(`[Threads] Published! ID: ${publishedId}`);
+
+    await this.postService.markPublished(
+      post.id,
+      publishedId,
+      `https://www.threads.net/@${post.integration.name}/post/${publishedId}`,
+    );
+  }
+
+  private async waitForThreadsContainer(
+    containerId: string,
+    token: string,
+    BASE: string,
+    maxWaitMs = TIMEOUTS.INSTAGRAM_CONTAINER_POLL,
+  ): Promise<string> {
+    const pollInterval = 5000;
+    const deadline = Date.now() + maxWaitMs;
+
+    while (Date.now() < deadline) {
+      const statusRes = await withTimeout(
+        axios.get(`${BASE}/${containerId}`, {
+          params: { fields: 'status_code,error_message', access_token: token },
+          timeout: TIMEOUTS.META_API_CALL,
+        }),
+        TIMEOUTS.META_API_CALL,
+        'Threads container status poll',
+      );
+
+      const statusCode = statusRes.data.status_code;
+      this.logger.log(`[Threads] Container ${containerId} status: ${statusCode}`);
+
+      if (statusCode === 'FINISHED') return containerId;
+      if (statusCode === 'ERROR' || statusCode === 'EXPIRED') {
+        throw new Error(
+          `Threads media container failed: ${statusCode}` +
+          (statusRes.data.error_message ? ` — ${statusRes.data.error_message}` : '')
+        );
+      }
+
+      await new Promise((r) => setTimeout(r, pollInterval));
+    }
+
+    throw new Error(`Threads media container timed out after ${maxWaitMs / 1000}s.`);
+  }
+
+  // ── Google Business Profile publish ───────────────────────
+  private async publishToGoogleBusiness(post: any, token: string, publicMediaUrls: string[]) {
+    const locationId = post.integration.internalId;
+    const caption = this.formatCaption(post);
+
+    const payload: any = {
+      languageCode: 'en-US',
+      summary: caption,
+    };
+
+    if (publicMediaUrls.length > 0) {
+      payload.media = publicMediaUrls.map((url) => ({
+        mediaFormat: 'PHOTO',
+        sourceUrl: url,
+      }));
+    }
+
+    this.logger.log(`[Google Business] Publishing to location ${locationId}`);
+    const res = await withTimeout(
+      axios.post(
+        `https://mybusinesslocalpost.googleapis.com/v1/locations/${locationId}/localPosts`,
+        payload,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          timeout: TIMEOUTS.META_API_CALL,
+        },
+      ),
+      TIMEOUTS.META_API_CALL,
+      'Google Business Profile publish',
+    );
+
+    const publishedId = res.data.name;
+    this.logger.log(`[Google Business] Published! ID: ${publishedId}`);
+
+    await this.postService.markPublished(
+      post.id,
+      publishedId,
+      `https://business.google.com/dashboard/l/${locationId}`,
     );
   }
 

@@ -8,6 +8,9 @@ import { PrismaService } from '../database/prisma.service';
 import { MetaOAuthService } from './providers/meta-oauth.service';
 import { YoutubeOAuthService } from './providers/youtube-oauth.service';
 import { InstagramOAuthService } from './providers/instagram-oauth.service';
+import { LinkedinOAuthService } from './providers/linkedin-oauth.service';
+import { ThreadsOAuthService } from './providers/threads-oauth.service';
+import { GoogleBusinessOAuthService } from './providers/google-business-oauth.service';
 import { encrypt, decrypt, safeDecrypt } from '../../common/utils/crypto.util';
 import { Platform } from '@prisma/client';
 import * as crypto from 'crypto';
@@ -20,6 +23,9 @@ export class IntegrationService {
     private metaOAuth: MetaOAuthService,
     private youtubeOAuth: YoutubeOAuthService,
     private instagramOAuth: InstagramOAuthService,
+    private linkedinOAuth: LinkedinOAuthService,
+    private threadsOAuth: ThreadsOAuthService,
+    private googleBusinessOAuth: GoogleBusinessOAuthService,
   ) {}
 
   // ── Get all integrations for an org ──────────────────────
@@ -245,6 +251,86 @@ export class IntegrationService {
 
     await this.updateAccountCount(organizationId);
 
+    return this.sanitizeIntegration(integration);
+  }
+
+  // ── LinkedIn OAuth flow ───────────────────────────────────
+  async getLinkedinAuthUrl(organizationId: string, userId: string): Promise<string> {
+    const state = await this.createOAuthState(organizationId, userId, 'linkedin');
+    return this.linkedinOAuth.getAuthUrl(state);
+  }
+
+  async handleLinkedinCallback(code: string, state: string) {
+    const { organizationId } = await this.consumeOAuthState(state, 'linkedin');
+    const data = await this.linkedinOAuth.exchangeCode(code);
+
+    const expiryDate = data.expiresIn ? new Date(Date.now() + data.expiresIn * 1000) : undefined;
+
+    const integration = await this.upsertIntegration({
+      organizationId,
+      platform: 'LINKEDIN',
+      internalId: data.profileId,
+      name: data.profileName,
+      pictureUrl: data.pictureUrl,
+      accessToken: data.accessToken,
+      tokenExpiry: expiryDate,
+      profileData: JSON.stringify({
+        email: data.email,
+      }),
+    });
+
+    await this.updateAccountCount(organizationId);
+    return this.sanitizeIntegration(integration);
+  }
+
+  // ── Threads OAuth flow ────────────────────────────────────
+  async getThreadsAuthUrl(organizationId: string, userId: string): Promise<string> {
+    const state = await this.createOAuthState(organizationId, userId, 'threads');
+    return this.threadsOAuth.getAuthUrl(state);
+  }
+
+  async handleThreadsCallback(code: string, state: string) {
+    const { organizationId } = await this.consumeOAuthState(state, 'threads');
+    const data = await this.threadsOAuth.exchangeCode(code);
+
+    const expiryDate = data.expiresIn ? new Date(Date.now() + data.expiresIn * 1000) : undefined;
+
+    const integration = await this.upsertIntegration({
+      organizationId,
+      platform: 'THREADS',
+      internalId: data.profileId,
+      name: data.profileName,
+      pictureUrl: data.pictureUrl,
+      accessToken: data.accessToken,
+      tokenExpiry: expiryDate,
+    });
+
+    await this.updateAccountCount(organizationId);
+    return this.sanitizeIntegration(integration);
+  }
+
+  // ── Google Business OAuth flow ────────────────────────────
+  async getGoogleBusinessAuthUrl(organizationId: string, userId: string): Promise<string> {
+    const state = await this.createOAuthState(organizationId, userId, 'google-business');
+    return this.googleBusinessOAuth.getAuthUrl(state);
+  }
+
+  async handleGoogleBusinessCallback(code: string, state: string) {
+    const { organizationId } = await this.consumeOAuthState(state, 'google-business');
+    const data = await this.googleBusinessOAuth.exchangeCode(code);
+
+    const integration = await this.upsertIntegration({
+      organizationId,
+      platform: 'GOOGLE_BUSINESS',
+      internalId: data.profileId,
+      name: data.profileName,
+      pictureUrl: data.pictureUrl,
+      accessToken: data.accessToken,
+      refreshToken: data.refreshToken,
+      tokenExpiry: data.expiryDate,
+    });
+
+    await this.updateAccountCount(organizationId);
     return this.sanitizeIntegration(integration);
   }
 

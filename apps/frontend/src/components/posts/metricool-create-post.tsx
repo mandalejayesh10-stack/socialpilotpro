@@ -9,25 +9,49 @@ import {
   Instagram, Facebook, Youtube, X, Plus, Image, Video,
   Sparkles, Hash, Smile, MapPin, Link, MessageSquare,
   Upload, Loader2, Monitor, Smartphone, ChevronDown,
-  Clock, Lightbulb, Settings,
+  Clock, Lightbulb, Settings, Linkedin, Store,
 } from 'lucide-react';
+
+const ThreadsIcon = ({ size = 14 }: { size?: number }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.25"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M12 2c-5.523 0-10 4.477-10 10s4.477 10 10 10c2.57 0 4.914-.972 6.697-2.563l-1.428-1.428c-1.393 1.222-3.21 1.991-5.269 1.991-4.418 0-8-3.582-8-8s3.582-8 8-8 8 3.582 8 8v1.5c0 .828-.672 1.5-1.5 1.5s-1.5-.672-1.5-1.5v-5.5h-2v1.571c-.754-.973-1.921-1.571-3.25-1.571-2.347 0-4.25 1.903-4.25 4.25s1.903 4.25 4.25 4.25c1.329 0 2.496-.598 3.25-1.571v.821c0 1.933 1.567 3.5 3.5 3.5s3.5-1.567 3.5-3.5v-3c0-5.523-4.477-10-10-10zm0 11.75c-1.243 0-2.25-1.007-2.25-2.25s1.007-2.25 2.25-2.25 2.25 1.007 2.25 2.25-1.007 2.25-2.25 2.25z" />
+  </svg>
+);
 
 const PLATFORM_ICONS: Record<string, React.ReactNode> = {
   INSTAGRAM: <Instagram size={14} />,
   FACEBOOK:  <Facebook size={14} />,
   YOUTUBE:   <Youtube size={14} />,
+  LINKEDIN:  <Linkedin size={14} />,
+  THREADS:   <ThreadsIcon size={14} />,
+  GOOGLE_BUSINESS: <Store size={14} />,
 };
 
 const PLATFORM_COLORS: Record<string, string> = {
   INSTAGRAM: 'bg-gradient-to-br from-purple-500 to-pink-500',
   FACEBOOK:  'bg-blue-600',
   YOUTUBE:   'bg-red-600',
+  LINKEDIN:  'bg-sky-600',
+  THREADS:   'bg-slate-700',
+  GOOGLE_BUSINESS: 'bg-emerald-600',
 };
 
 const CHAR_LIMITS: Record<string, number> = {
   INSTAGRAM: 2200,
   FACEBOOK:  63206,
   YOUTUBE:   5000,
+  LINKEDIN:  3000,
+  THREADS:   500,
+  GOOGLE_BUSINESS: 1500,
 };
 
 function MediaThumb({ media, className, aspect = 'video' }: { media: any; className: string; aspect?: 'video' | 'square' }) {
@@ -130,7 +154,7 @@ export function MetricoolCreatePost({ open, onClose, integrations, defaultDate, 
         if (selectedIntegrations.length > 0 && uploaded.id) {
           const firstIntegration = integrations.find((i) => i.id === selectedIntegrations[0]);
           const platform = firstIntegration?.platform;
-          if (platform && (platform === 'INSTAGRAM' || platform === 'FACEBOOK' || platform === 'YOUTUBE')) {
+          if (platform && (platform === 'INSTAGRAM' || platform === 'FACEBOOK' || platform === 'YOUTUBE' || platform === 'LINKEDIN' || platform === 'THREADS' || platform === 'GOOGLE_BUSINESS')) {
             try {
               const validation = await mediaApi.validate(orgId, uploaded.id, platform);
               if (validation.errors?.length > 0) {
@@ -598,6 +622,90 @@ export function MetricoolCreatePost({ open, onClose, integrations, defaultDate, 
                   <div className="p-3">
                     <p className="text-sm font-semibold text-gray-900 line-clamp-2">{content || 'Video title'}</p>
                     <p className="text-xs text-gray-500 mt-1">{previewIntegration?.name || 'Your Channel'}</p>
+                  </div>
+                </div>
+              )}
+
+              {previewPlatform === 'LINKEDIN' && (
+                <div className={clsx('bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden text-left', previewDevice === 'mobile' ? 'w-64' : 'w-full')}>
+                  <div className="flex items-start gap-2 p-3">
+                    <div className="w-9 h-9 rounded-full bg-sky-100 flex items-center justify-center text-sky-700 text-sm font-bold flex-shrink-0">
+                      {previewIntegration?.name?.charAt(0)?.toUpperCase() || 'L'}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-gray-900 truncate">{previewIntegration?.name || 'LinkedIn User'}</p>
+                      <p className="text-[10px] text-gray-500">1st · Professional</p>
+                      <p className="text-[9px] text-gray-400">Just now · 🌐</p>
+                    </div>
+                    <button className="text-gray-400">···</button>
+                  </div>
+                  {previewContent && (
+                    <div className="px-3 pb-2">
+                      <p className="text-xs text-gray-800 whitespace-pre-wrap line-clamp-6">{previewContent}</p>
+                    </div>
+                  )}
+                  {mediaFiles[0] && (
+                    <MediaThumb media={mediaFiles[0]} className="w-full aspect-video object-cover" />
+                  )}
+                  <div className="flex border-t border-gray-100 mt-1">
+                    {['👍 Like', '💬 Comment', '🔁 Repost', '✉ Send'].map((action) => (
+                      <button key={action} className="flex-1 py-2 text-[10px] text-gray-500 hover:bg-gray-50 transition-colors text-center font-medium">
+                        {action}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {previewPlatform === 'THREADS' && (
+                <div className={clsx('bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden text-left', previewDevice === 'mobile' ? 'w-64' : 'w-full')}>
+                  <div className="flex items-start gap-2 p-3">
+                    <div className="w-8 h-8 rounded-full bg-slate-900 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                      {previewIntegration?.name?.charAt(0)?.toUpperCase() || 'T'}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1">
+                        <p className="text-xs font-semibold text-gray-900 truncate">{previewIntegration?.name || 'threads_user'}</p>
+                        <span className="text-[10px] text-gray-400">1m</span>
+                      </div>
+                      {previewContent && (
+                        <p className="text-xs text-gray-800 whitespace-pre-wrap mt-1">{previewContent}</p>
+                      )}
+                    </div>
+                    <button className="text-gray-400">···</button>
+                  </div>
+                  {mediaFiles[0] && (
+                    <div className="px-3 pb-3 pl-12">
+                      <MediaThumb media={mediaFiles[0]} className="w-full rounded-lg aspect-square object-cover" aspect="square" />
+                    </div>
+                  )}
+                  <div className="flex items-center gap-4 pl-12 pb-3 text-gray-400 text-sm">
+                    <span>♡</span><span>💬</span><span>🔁</span><span>↗</span>
+                  </div>
+                </div>
+              )}
+
+              {previewPlatform === 'GOOGLE_BUSINESS' && (
+                <div className={clsx('bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden text-left', previewDevice === 'mobile' ? 'w-64' : 'w-full')}>
+                  <div className="p-3 border-b border-gray-100 flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center text-emerald-700">
+                      <Store size={16} />
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-gray-900">{previewIntegration?.name || 'Google Business Location'}</p>
+                      <p className="text-[10px] text-gray-500">Google Search & Maps Update</p>
+                    </div>
+                  </div>
+                  {mediaFiles[0] && (
+                    <MediaThumb media={mediaFiles[0]} className="w-full aspect-video object-cover" />
+                  )}
+                  <div className="p-3">
+                    {previewContent && (
+                      <p className="text-xs text-gray-800 whitespace-pre-wrap mb-3 line-clamp-5">{previewContent}</p>
+                    )}
+                    <div className="border border-emerald-500 text-emerald-600 rounded-lg py-1.5 text-center text-xs font-semibold hover:bg-emerald-50/50 cursor-default">
+                      Learn More
+                    </div>
                   </div>
                 </div>
               )}

@@ -8,10 +8,25 @@ import { useToast } from '@/components/ui/toast';
 import { mutate } from 'swr';
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Instagram, Facebook, Youtube, Plus, Trash2, RefreshCw, AlertCircle, CheckCircle, ExternalLink, X, Lock, Shield, Sparkles } from 'lucide-react';
+import { Instagram, Facebook, Youtube, Plus, Trash2, RefreshCw, AlertCircle, CheckCircle, ExternalLink, X, Lock, Shield, Sparkles, Linkedin, Store } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import clsx from 'clsx';
 import dayjs from 'dayjs';
+
+const ThreadsIcon = ({ size = 20 }: { size?: number }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.25"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M12 2c-5.523 0-10 4.477-10 10s4.477 10 10 10c2.57 0 4.914-.972 6.697-2.563l-1.428-1.428c-1.393 1.222-3.21 1.991-5.269 1.991-4.418 0-8-3.582-8-8s3.582-8 8-8 8 3.582 8 8v1.5c0 .828-.672 1.5-1.5 1.5s-1.5-.672-1.5-1.5v-5.5h-2v1.571c-.754-.973-1.921-1.571-3.25-1.571-2.347 0-4.25 1.903-4.25 4.25s1.903 4.25 4.25 4.25c1.329 0 2.496-.598 3.25-1.571v.821c0 1.933 1.567 3.5 3.5 3.5s3.5-1.567 3.5-3.5v-3c0-5.523-4.477-10-10-10zm0 11.75c-1.243 0-2.25-1.007-2.25-2.25s1.007-2.25 2.25-2.25 2.25 1.007 2.25 2.25-1.007 2.25-2.25 2.25z" />
+  </svg>
+);
 
 const PLATFORM_CONFIG: Record<string, {
   label: string;
@@ -49,6 +64,33 @@ const PLATFORM_CONFIG: Record<string, {
     description: 'Connect your YouTube channel to upload videos and track performance',
     steps: ['Requires YouTube channel ownership', 'Uses Google OAuth 2.0'],
   },
+  LINKEDIN: {
+    label: 'LinkedIn',
+    icon: <Linkedin size={20} />,
+    color: 'text-sky-400',
+    bg: 'bg-sky-500/10',
+    border: 'border-sky-500/20',
+    description: 'Connect your LinkedIn Profile or Page to schedule posts and articles',
+    steps: ['Supports Personal Profiles & Pages', 'Schedule text, images, and videos'],
+  },
+  THREADS: {
+    label: 'Threads',
+    icon: <ThreadsIcon size={20} />,
+    color: 'text-slate-100',
+    bg: 'bg-slate-500/10',
+    border: 'border-slate-500/20',
+    description: 'Connect your Threads account to publish threads and media',
+    steps: ['Requires Instagram/Threads account', 'Uses Threads Graph API'],
+  },
+  GOOGLE_BUSINESS: {
+    label: 'Google Business',
+    icon: <Store size={20} />,
+    color: 'text-emerald-400',
+    bg: 'bg-emerald-500/10',
+    border: 'border-emerald-500/20',
+    description: 'Connect Google Business Profile locations to schedule updates and offers',
+    steps: ['Requires business location manager access', 'Publish posts directly to Google Maps'],
+  },
 };
 
 export default function ConnectionsPage() {
@@ -58,9 +100,18 @@ export default function ConnectionsPage() {
   const { data: integrations = [], isLoading } = useIntegrations();
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
   const [isInstagramModalOpen, setIsInstagramModalOpen] = useState(false);
-  const [oauthStatus, setOauthStatus] = useState<{ meta: boolean; youtube: boolean }>({
+  const [oauthStatus, setOauthStatus] = useState<{
+    meta: boolean;
+    youtube: boolean;
+    linkedin: boolean;
+    threads: boolean;
+    googleBusiness: boolean;
+  }>({
     meta: false,
     youtube: false,
+    linkedin: false,
+    threads: false,
+    googleBusiness: false,
   });
 
   // ESC key to close modal
@@ -81,10 +132,19 @@ export default function ConnectionsPage() {
       .then(d => setOauthStatus({
         meta:    d.meta?.configured    ?? true,
         youtube: d.youtube?.configured ?? true,
+        linkedin: d.linkedin?.configured ?? true,
+        threads: d.threads?.configured ?? true,
+        googleBusiness: d.googleBusiness?.configured ?? true,
       }))
       .catch(() => {
         // If status check fails, default to showing connect buttons
-        setOauthStatus({ meta: true, youtube: true });
+        setOauthStatus({
+          meta: true,
+          youtube: true,
+          linkedin: true,
+          threads: true,
+          googleBusiness: true,
+        });
       });
   }, []);
 
@@ -136,6 +196,15 @@ export default function ConnectionsPage() {
       } else if (platform === 'INSTAGRAM_DIRECT') {
         const res = await integrationApi.connectInstagramUrl(orgId);
         url = res.url;
+      } else if (platform === 'LINKEDIN') {
+        const res = await integrationApi.connectLinkedinUrl(orgId);
+        url = res.url;
+      } else if (platform === 'THREADS') {
+        const res = await integrationApi.connectThreadsUrl(orgId);
+        url = res.url;
+      } else if (platform === 'GOOGLE_BUSINESS') {
+        const res = await integrationApi.connectGoogleBusinessUrl(orgId);
+        url = res.url;
       } else {
         const res = await integrationApi.connectMetaUrl(orgId);
         url = res.url;
@@ -170,7 +239,7 @@ export default function ConnectionsPage() {
         <p className="text-sm font-semibold text-brand-400 mb-1">Before connecting</p>
         <p className="text-xs text-text-muted leading-relaxed">
           Add your API credentials to <code className="bg-surface-hover px-1 py-0.5 rounded text-brand-400">.env</code> first:
-          <span className="text-text-secondary"> FACEBOOK_APP_ID, FACEBOOK_APP_SECRET, YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET</span>.
+          <span className="text-text-secondary"> FACEBOOK_APP_ID, FACEBOOK_APP_SECRET, YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, LINKEDIN_CLIENT_ID, LINKEDIN_CLIENT_SECRET, THREADS_CLIENT_ID, THREADS_CLIENT_SECRET, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET</span>.
           Then restart the backend.
         </p>
       </div>
@@ -245,9 +314,31 @@ export default function ConnectionsPage() {
 
               {/* Connect button */}
               {(() => {
-                const isMetaPlatform = platform === 'INSTAGRAM' || platform === 'FACEBOOK';
-                const providerConfigured = isMetaPlatform ? oauthStatus.meta : oauthStatus.youtube;
-                const setupGuide = isMetaPlatform ? 'SETUP_META.md' : 'SETUP_OAUTH.md';
+                let providerConfigured = false;
+                let envVar = '';
+                let setupGuide = 'SETUP_OAUTH.md';
+                
+                if (platform === 'INSTAGRAM' || platform === 'FACEBOOK') {
+                  providerConfigured = oauthStatus.meta;
+                  envVar = 'FACEBOOK_APP_ID';
+                  setupGuide = 'SETUP_META.md';
+                } else if (platform === 'YOUTUBE') {
+                  providerConfigured = oauthStatus.youtube;
+                  envVar = 'YOUTUBE_CLIENT_ID';
+                  setupGuide = 'SETUP_OAUTH.md';
+                } else if (platform === 'LINKEDIN') {
+                  providerConfigured = oauthStatus.linkedin;
+                  envVar = 'LINKEDIN_CLIENT_ID';
+                  setupGuide = 'SETUP_LINKEDIN.md';
+                } else if (platform === 'THREADS') {
+                  providerConfigured = oauthStatus.threads;
+                  envVar = 'THREADS_CLIENT_ID';
+                  setupGuide = 'SETUP_THREADS.md';
+                } else if (platform === 'GOOGLE_BUSINESS') {
+                  providerConfigured = oauthStatus.googleBusiness;
+                  envVar = 'GOOGLE_CLIENT_ID';
+                  setupGuide = 'SETUP_GOOGLE.md';
+                }
 
                 if (!providerConfigured) {
                   return (
@@ -256,7 +347,7 @@ export default function ConnectionsPage() {
                       <div>
                         <p className="text-xs font-medium text-warning">Not configured</p>
                         <p className="text-[10px] text-text-muted mt-0.5">
-                          Add {isMetaPlatform ? 'FACEBOOK_APP_ID' : 'YOUTUBE_CLIENT_ID'} to{' '}
+                          Add {envVar} to{' '}
                           <code className="bg-surface-border px-1 rounded">.env</code>.{' '}
                           See <code className="bg-surface-border px-1 rounded">{setupGuide}</code>
                         </p>
@@ -398,7 +489,7 @@ export default function ConnectionsPage() {
       {/* Empty state */}
       {!isLoading && integrations.length === 0 && (
         <div className="bg-surface-card border border-dashed border-surface-border rounded-2xl p-12 text-center">
-          <div className="flex justify-center gap-3 mb-4">
+          <div className="flex justify-center gap-3 mb-4 flex-wrap">
             <div className="w-10 h-10 rounded-xl bg-pink-500/10 flex items-center justify-center text-pink-400">
               <Instagram size={18} />
             </div>
@@ -408,10 +499,19 @@ export default function ConnectionsPage() {
             <div className="w-10 h-10 rounded-xl bg-red-500/10 flex items-center justify-center text-red-400">
               <Youtube size={18} />
             </div>
+            <div className="w-10 h-10 rounded-xl bg-sky-500/10 flex items-center justify-center text-sky-400">
+              <Linkedin size={18} />
+            </div>
+            <div className="w-10 h-10 rounded-xl bg-slate-500/10 flex items-center justify-center text-slate-100">
+              <ThreadsIcon size={18} />
+            </div>
+            <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-400">
+              <Store size={18} />
+            </div>
           </div>
           <h3 className="text-base font-semibold text-text-primary mb-2">No accounts connected yet</h3>
-          <p className="text-sm text-text-muted max-w-sm mx-auto">
-            Connect your Instagram, Facebook, or YouTube accounts to start scheduling posts and tracking analytics.
+          <p className="text-sm text-text-muted max-w-md mx-auto">
+            Connect your social media profiles, pages, channels, or business locations to start scheduling posts and tracking analytics.
           </p>
         </div>
       )}

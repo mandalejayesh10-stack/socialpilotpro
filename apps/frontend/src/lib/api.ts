@@ -109,6 +109,9 @@ export const integrationApi = {
   connectMetaUrl: (orgId: string) => request<{ url: string }>('/integrations/meta/connect', { orgId }),
   connectYoutubeUrl: (orgId: string) => request<{ url: string }>('/integrations/youtube/connect', { orgId }),
   connectInstagramUrl: (orgId: string) => request<{ url: string }>('/integrations/instagram/connect', { orgId }),
+  connectLinkedinUrl: (orgId: string) => request<{ url: string }>('/integrations/linkedin/connect', { orgId }),
+  connectThreadsUrl: (orgId: string) => request<{ url: string }>('/integrations/threads/connect', { orgId }),
+  connectGoogleBusinessUrl: (orgId: string) => request<{ url: string }>('/integrations/google-business/connect', { orgId }),
 };
 
 // ── Posts ─────────────────────────────────────────────────────

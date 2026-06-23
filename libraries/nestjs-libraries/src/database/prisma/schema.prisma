@@ -72,6 +72,9 @@ enum Platform {
   INSTAGRAM
   FACEBOOK
   YOUTUBE
+  LINKEDIN
+  THREADS
+  GOOGLE_BUSINESS
 }
 
 enum JobStatus {

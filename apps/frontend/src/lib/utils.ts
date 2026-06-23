@@ -68,6 +68,9 @@ export function getPlatformColor(platform: string): string {
     INSTAGRAM: '#e1306c',
     FACEBOOK:  '#1877f2',
     YOUTUBE:   '#ff0000',
+    LINKEDIN:  '#0a66c2',
+    THREADS:   '#000000',
+    GOOGLE_BUSINESS: '#0f9d58',
   };
   return colors[platform?.toUpperCase()] || '#6366f1';
 }
@@ -77,6 +80,9 @@ export function getPlatformLabel(platform: string): string {
     INSTAGRAM: 'Instagram',
     FACEBOOK:  'Facebook',
     YOUTUBE:   'YouTube',
+    LINKEDIN:  'LinkedIn',
+    THREADS:   'Threads',
+    GOOGLE_BUSINESS: 'Google Business',
   };
   return labels[platform?.toUpperCase()] || platform;
 }

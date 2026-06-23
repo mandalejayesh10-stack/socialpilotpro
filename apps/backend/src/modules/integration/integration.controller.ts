@@ -7,6 +7,9 @@ import { IntegrationService } from './integration.service';
 import { MetaOAuthService } from './providers/meta-oauth.service';
 import { YoutubeOAuthService } from './providers/youtube-oauth.service';
 import { InstagramOAuthService } from './providers/instagram-oauth.service';
+import { LinkedinOAuthService } from './providers/linkedin-oauth.service';
+import { ThreadsOAuthService } from './providers/threads-oauth.service';
+import { GoogleBusinessOAuthService } from './providers/google-business-oauth.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { OrgMemberGuard } from '../../common/guards/org-member.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
@@ -24,6 +27,9 @@ export class IntegrationController {
     private metaOAuth: MetaOAuthService,
     private youtubeOAuth: YoutubeOAuthService,
     private instagramOAuth: InstagramOAuthService,
+    private linkedinOAuth: LinkedinOAuthService,
+    private threadsOAuth: ThreadsOAuthService,
+    private googleBusinessOAuth: GoogleBusinessOAuthService,
   ) {}
 
   // ── List integrations ─────────────────────────────────────
@@ -59,6 +65,21 @@ export class IntegrationController {
         feature: 'YouTube',
         account: 'mandalejayesh10@gmail.com',
         addRedirectUri: `${redirectBase}/api/integrations/youtube/callback`,
+      },
+      linkedin: {
+        configured: this.linkedinOAuth.isConfigured(),
+        feature: 'LinkedIn Profiles & Pages',
+        addRedirectUri: `${redirectBase}/api/integrations/linkedin/callback`,
+      },
+      threads: {
+        configured: this.threadsOAuth.isConfigured(),
+        feature: 'Threads publishing',
+        addRedirectUri: `${redirectBase}/api/integrations/threads/callback`,
+      },
+      googleBusiness: {
+        configured: this.googleBusinessOAuth.isConfigured(),
+        feature: 'Google Business Profile locations',
+        addRedirectUri: `${redirectBase}/api/integrations/google-business/callback`,
       },
     };
   }
@@ -170,6 +191,114 @@ export class IntegrationController {
       await this.integrationService.handleYoutubeCallback(code, state);
       res.redirect(`${process.env.FRONTEND_URL}/dashboard/settings/connections?connected=youtube`);
     } catch (err: any) {
+      res.redirect(`${process.env.FRONTEND_URL}/dashboard/settings/connections?error=${encodeURIComponent(err.message)}`);
+    }
+  }
+
+  // ── LinkedIn OAuth ────────────────────────────────────────
+  @Get('linkedin/connect')
+  @UseGuards(OrgMemberGuard, PermissionsGuard)
+  @RequirePermissions('integrations:write')
+  @ApiOperation({ summary: 'Start LinkedIn OAuth flow' })
+  async connectLinkedin(
+    @CurrentOrg() org: any,
+    @CurrentUser() user: any,
+    @Query('x-org-id') orgId: string,
+    @Query('orgId') orgId2: string,
+  ) {
+    const organizationId = org?.id || orgId || orgId2;
+    if (!this.linkedinOAuth.isConfigured()) {
+      throw new Error('LinkedIn is not configured.');
+    }
+    const url = await this.integrationService.getLinkedinAuthUrl(organizationId, user.id);
+    return { url };
+  }
+
+  @Public()
+  @Get('linkedin/callback')
+  @ApiOperation({ summary: 'LinkedIn OAuth callback' })
+  async linkedinCallback(
+    @Query('code') code: string,
+    @Query('state') state: string,
+    @Res() res: Response,
+  ) {
+    try {
+      await this.integrationService.handleLinkedinCallback(code, state);
+      res.redirect(`${process.env.FRONTEND_URL}/dashboard/settings/connections?connected=linkedin`);
+    } catch (err: any) {
+      console.error('[LinkedIn Callback Error]', err.message);
+      res.redirect(`${process.env.FRONTEND_URL}/dashboard/settings/connections?error=${encodeURIComponent(err.message)}`);
+    }
+  }
+
+  // ── Threads OAuth ─────────────────────────────────────────
+  @Get('threads/connect')
+  @UseGuards(OrgMemberGuard, PermissionsGuard)
+  @RequirePermissions('integrations:write')
+  @ApiOperation({ summary: 'Start Threads OAuth flow' })
+  async connectThreads(
+    @CurrentOrg() org: any,
+    @CurrentUser() user: any,
+    @Query('x-org-id') orgId: string,
+    @Query('orgId') orgId2: string,
+  ) {
+    const organizationId = org?.id || orgId || orgId2;
+    if (!this.threadsOAuth.isConfigured()) {
+      throw new Error('Threads is not configured.');
+    }
+    const url = await this.integrationService.getThreadsAuthUrl(organizationId, user.id);
+    return { url };
+  }
+
+  @Public()
+  @Get('threads/callback')
+  @ApiOperation({ summary: 'Threads OAuth callback' })
+  async threadsCallback(
+    @Query('code') code: string,
+    @Query('state') state: string,
+    @Res() res: Response,
+  ) {
+    try {
+      await this.integrationService.handleThreadsCallback(code, state);
+      res.redirect(`${process.env.FRONTEND_URL}/dashboard/settings/connections?connected=threads`);
+    } catch (err: any) {
+      console.error('[Threads Callback Error]', err.message);
+      res.redirect(`${process.env.FRONTEND_URL}/dashboard/settings/connections?error=${encodeURIComponent(err.message)}`);
+    }
+  }
+
+  // ── Google Business OAuth ─────────────────────────────────
+  @Get('google-business/connect')
+  @UseGuards(OrgMemberGuard, PermissionsGuard)
+  @RequirePermissions('integrations:write')
+  @ApiOperation({ summary: 'Start Google Business OAuth flow' })
+  async connectGoogleBusiness(
+    @CurrentOrg() org: any,
+    @CurrentUser() user: any,
+    @Query('x-org-id') orgId: string,
+    @Query('orgId') orgId2: string,
+  ) {
+    const organizationId = org?.id || orgId || orgId2;
+    if (!this.googleBusinessOAuth.isConfigured()) {
+      throw new Error('Google Business is not configured.');
+    }
+    const url = await this.integrationService.getGoogleBusinessAuthUrl(organizationId, user.id);
+    return { url };
+  }
+
+  @Public()
+  @Get('google-business/callback')
+  @ApiOperation({ summary: 'Google Business OAuth callback' })
+  async googleBusinessCallback(
+    @Query('code') code: string,
+    @Query('state') state: string,
+    @Res() res: Response,
+  ) {
+    try {
+      await this.integrationService.handleGoogleBusinessCallback(code, state);
+      res.redirect(`${process.env.FRONTEND_URL}/dashboard/settings/connections?connected=google-business`);
+    } catch (err: any) {
+      console.error('[Google Business Callback Error]', err.message);
       res.redirect(`${process.env.FRONTEND_URL}/dashboard/settings/connections?error=${encodeURIComponent(err.message)}`);
     }
   }

@@ -2,7 +2,7 @@ import clsx from 'clsx';
 
 interface BadgeProps {
   children: React.ReactNode;
-  variant?: 'default' | 'success' | 'warning' | 'error' | 'info' | 'instagram' | 'facebook' | 'youtube';
+  variant?: 'default' | 'success' | 'warning' | 'error' | 'info' | 'instagram' | 'facebook' | 'youtube' | 'linkedin' | 'threads' | 'google_business';
   size?: 'sm' | 'md';
   className?: string;
 }
@@ -17,6 +17,9 @@ export function Badge({ children, variant = 'default', size = 'sm', className }:
     instagram: 'bg-pink-500/15 text-pink-400',
     facebook:  'bg-blue-500/15 text-blue-400',
     youtube:   'bg-red-500/15 text-red-400',
+    linkedin:  'bg-sky-500/15 text-sky-400',
+    threads:   'bg-slate-500/15 text-slate-100',
+    google_business: 'bg-emerald-500/15 text-emerald-400',
   };
 
   const sizes = {
@@ -33,9 +36,12 @@ export function Badge({ children, variant = 'default', size = 'sm', className }:
 
 export function PlatformBadge({ platform }: { platform: string }) {
   const map: Record<string, { label: string; variant: any }> = {
-    INSTAGRAM: { label: 'Instagram', variant: 'instagram' },
-    FACEBOOK:  { label: 'Facebook',  variant: 'facebook' },
-    YOUTUBE:   { label: 'YouTube',   variant: 'youtube' },
+    INSTAGRAM:       { label: 'Instagram',       variant: 'instagram' },
+    FACEBOOK:        { label: 'Facebook',        variant: 'facebook' },
+    YOUTUBE:         { label: 'YouTube',         variant: 'youtube' },
+    LINKEDIN:        { label: 'LinkedIn',        variant: 'linkedin' },
+    THREADS:         { label: 'Threads',         variant: 'threads' },
+    GOOGLE_BUSINESS: { label: 'Google Business', variant: 'google_business' },
   };
   const config = map[platform?.toUpperCase()] || { label: platform, variant: 'default' };
   return <Badge variant={config.variant}>{config.label}</Badge>;
